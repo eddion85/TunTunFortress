@@ -57,6 +57,11 @@ namespace BattleFortress
         private float _markerT = -1f;
         private float _markerBaseScale = 1f;
 
+        [Header("边界提示")]
+        [SerializeField] private float edgeTipCooldown = 2.5f; // 同一边界提示最小间隔（秒）
+        [SerializeField] private float edgeEps = 0.08f;       // 距边界多少米视为贴边
+        private float _edgeTipT;
+
         // ---------------- 生命周期 ----------------
         private void OnEnable()
         {
@@ -78,6 +83,8 @@ namespace BattleFortress
 
         private void Start()
         {
+            // 开局强制出生在地图正中心，不依赖场景实例里保存的坐标
+            transform.position = Vector3.zero;
             if (cam == null) cam = Camera.main;
             if (useTapToMove && !_joyHidden)
             {
@@ -311,6 +318,7 @@ namespace BattleFortress
         {
             float dt = Mathf.Min(Time.deltaTime, GameConfig.MaxDelta);
             if (_cd > 0f) _cd -= dt;
+            if (_edgeTipT > 0f) _edgeTipT -= dt;
             if (GS.Over || GS.Paused) { HideMoveMarker(); return; }
             TickMoveMarker(dt);
 
@@ -357,6 +365,15 @@ namespace BattleFortress
             pos.z = Mathf.Clamp(pos.z + _dir.z * sp * dt, -half, half);
             pos.y = 0f;
             transform.position = pos;
+
+            // 朝墙走且已贴边 → 非阻断提示（自动上浮淡出，不暂停游戏；节流防刷屏）
+            bool hitX = (_dir.x > 0.01f && pos.x >= half - edgeEps) || (_dir.x < -0.01f && pos.x <= -half + edgeEps);
+            bool hitZ = (_dir.z > 0.01f && pos.z >= half - edgeEps) || (_dir.z < -0.01f && pos.z <= -half + edgeEps);
+            if ((hitX || hitZ) && _edgeTipT <= 0f)
+            {
+                _edgeTipT = edgeTipCooldown;
+                GameBus.Emit(GameEvents.Float, "已到地图边界");
+            }
 
             if (_dir.sqrMagnitude > 0.0001f)
                 transform.rotation = Quaternion.LookRotation(_dir, Vector3.up) * Quaternion.Euler(0f, yawOffset, 0f);

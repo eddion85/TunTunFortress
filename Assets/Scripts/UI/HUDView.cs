@@ -114,10 +114,8 @@ namespace BattleFortress
 
             if (progLabel != null)
             {
-                // 无尽生存：显示存活时间与下一只 Boss 倒计时
-                progLabel.text = GS.BossAlive
-                    ? "击杀农场守卫!"
-                    : "存活 " + GS.TimeText() + " · Boss " + Mathf.CeilToInt(Mathf.Max(0f, GS.NextBossTime - GS.Elapsed)) + "s";
+                // 进度条常驻：局内已进行时间（mm:ss），不显示关卡/击败目标类文案
+                progLabel.text = "存活 " + GS.TimeText();
             }
 
             if (levelLabel != null) levelLabel.text = "Lv." + GS.Level + " 阶" + GS.Stage;
@@ -125,7 +123,12 @@ namespace BattleFortress
             if (coinLabel != null) coinLabel.text = GS.Coins.ToString();
 
             if (levelNameLabel != null)
-                levelNameLabel.text = GS.BossAlive ? "农场守卫来袭!" : GS.Profile().phase;
+            {
+                // 仅保留下一只 Boss 的纯时间倒计时（时间驱动），不再出现阶段/守卫叙事文案
+                levelNameLabel.text = GS.BossAlive
+                    ? "守卫交战中"
+                    : "下一只 " + Mathf.CeilToInt(Mathf.Max(0f, GS.NextBossTime - GS.Elapsed)) + "s";
+            }
 
             if (comboLabel != null)
             {
