@@ -1,4 +1,4 @@
-﻿%YAML 1.1
+%YAML 1.1
 %TAG !u! tag:unity3d.com,2011:
 --- !u!29 &1
 OcclusionCullingSettings:
@@ -2393,6 +2393,18 @@ PrefabInstance:
       propertyPath: m_Name
       value: Player
       objectReference: {fileID: 0}
+    - target: {fileID: 1148189232959787636, guid: 7c52c63d1e0aa89488797304ed2f9766, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1455356564362830298, guid: 7c52c63d1e0aa89488797304ed2f9766, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1854715945445975998, guid: 7c52c63d1e0aa89488797304ed2f9766, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 1894676329333819513, guid: 7c52c63d1e0aa89488797304ed2f9766, type: 3}
       propertyPath: m_IsActive
       value: 0
@@ -2437,7 +2449,15 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 2795920445464081117, guid: 7c52c63d1e0aa89488797304ed2f9766, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 2810031323864961850, guid: 7c52c63d1e0aa89488797304ed2f9766, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 3052142839641729027, guid: 7c52c63d1e0aa89488797304ed2f9766, type: 3}
       propertyPath: m_IsActive
       value: 0
       objectReference: {fileID: 0}
@@ -2445,7 +2465,39 @@ PrefabInstance:
       propertyPath: m_IsActive
       value: 0
       objectReference: {fileID: 0}
+    - target: {fileID: 3334483645447357995, guid: 7c52c63d1e0aa89488797304ed2f9766, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4243759536515425667, guid: 7c52c63d1e0aa89488797304ed2f9766, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 4869911963520603789, guid: 7c52c63d1e0aa89488797304ed2f9766, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 5501431434441799950, guid: 7c52c63d1e0aa89488797304ed2f9766, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 5814274700304235185, guid: 7c52c63d1e0aa89488797304ed2f9766, type: 3}
+      propertyPath: m_IsActive
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 5922555706763763594, guid: 7c52c63d1e0aa89488797304ed2f9766, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 6359145510447978803, guid: 7c52c63d1e0aa89488797304ed2f9766, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7671864018710360231, guid: 7c52c63d1e0aa89488797304ed2f9766, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 7791964005717773910, guid: 7c52c63d1e0aa89488797304ed2f9766, type: 3}
       propertyPath: m_IsActive
       value: 0
       objectReference: {fileID: 0}
@@ -8997,6 +9049,8 @@ MonoBehaviour:
   thumb: {fileID: 2041882061}
   pad: {fileID: 1190411565}
   radius: 60
+  deadZone: 0.04
+  touchSize: 300
 --- !u!1 &1907592663
 GameObject:
   m_ObjectHideFlags: 0

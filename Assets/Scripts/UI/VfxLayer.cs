@@ -327,6 +327,10 @@ namespace BattleFortress
                 var e = Registry.Enemies[i];
                 if (e == null || e.Dead || !e.gameObject.activeInHierarchy) continue;
 
+                float ratio = Mathf.Clamp01(e.Hp / Mathf.Max(1f, e.MaxHp));
+                // 减少画面杂乱：满血小兵不挂血条，受到伤害后才显示；Boss 血条常驻
+                if (!e.IsBoss && ratio >= 0.999f) continue;
+
                 var bar = ObtainBar();
                 Vector3 p = e.transform.position;
                 float h = e.IsBoss ? 3.4f : 1.8f;
@@ -338,9 +342,8 @@ namespace BattleFortress
                 }
 
                 bar.root.SetActive(true);
-                float w = e.IsBoss ? 220f : 76f;
-                float bh = e.IsBoss ? 20f : 11f;
-                float ratio = Mathf.Clamp01(e.Hp / Mathf.Max(1f, e.MaxHp));
+                float w = e.IsBoss ? 220f : 60f;
+                float bh = e.IsBoss ? 20f : 8f;
 
                 var rt = bar.root.transform as RectTransform;
                 rt.sizeDelta = new Vector2(w, bh);

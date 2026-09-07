@@ -134,5 +134,6 @@ namespace BattleFortress
         public const string LightBeam = "art/vfx/T_FX_LightBeam";
         public const string DebrisWood = "art/vfx/T_FX_DebrisWood";
         public const string ShadowBlob = "art/vfx/T_FX_ShadowBlob";
+        public const string TapMarker = "art/vfx/T_UI_TapMarker"; // 点地移动光标
     }
 }

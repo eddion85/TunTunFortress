@@ -49,10 +49,10 @@ namespace BattleFortress
         private bool _marked;
         private bool _joyHidden;
 
-        [Header("LoL 式落点光标")]
-        [SerializeField] private float markerLife = 0.5f;   // 光标存活秒数
-        [SerializeField] private float markerSize = 2.4f;   // 光标世界直径（米）
-        [SerializeField] private Color markerColor = new Color(0.55f, 1f, 0.55f, 1f); // LoL 移动绿
+        [Header("点击落点光标（仅引导用，小而轻）")]
+        [SerializeField] private float markerLife = 0.45f;  // 光标存活秒数
+        [SerializeField] private float markerSize = 1.8f;   // 光标世界直径（米）
+        [SerializeField] private Color markerColor = Color.white; // 贴图自带青色，默认不染色
         private SpriteRenderer _marker;
         private float _markerT = -1f;
         private float _markerBaseScale = 1f;
@@ -98,7 +98,8 @@ namespace BattleFortress
         /// <summary>运行时创建一个平铺在地面上的落点光标（不写入场景，停止播放即销毁）</summary>
         private void BuildMoveMarker()
         {
-            var spr = Resources.Load<Sprite>(VfxKeys.RingWave);
+            var spr = Resources.Load<Sprite>(VfxKeys.TapMarker);
+            if (spr == null) spr = Resources.Load<Sprite>(VfxKeys.RingWave); // 兜底
             if (spr == null) return;
             var go = new GameObject("TapMoveMarker");
             go.transform.SetParent(transform.parent, false); // 放在世界根下，不跟随战车
