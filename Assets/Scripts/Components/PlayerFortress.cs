@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.EventSystems;
 
 namespace BattleFortress
 {
@@ -26,6 +27,11 @@ namespace BattleFortress
         [SerializeField] private GameObject tier2;
         [SerializeField] private GameObject tier3;
 
+        [Header("点地移动（点击/按住屏幕空地自动走过去）")]
+        [SerializeField] private bool useTapToMove = true;   // 关掉则回退到旧摇杆模式
+        [SerializeField] private float arriveDistance = 0.35f; // 到点多少米内停下
+        [SerializeField] private float markMinMove = 1.2f;    // 目标移动超过多少米才再播一次落点光圈
+
         private Vector3 _dir = new Vector3(0f, 0f, 1f);
         private float _dash;
         private float _cd;
@@ -34,6 +40,22 @@ namespace BattleFortress
         private float _dashTick;
         private GameObject[] _tiers;
         private int _skinStage = -1;
+
+        // 点地移动状态
+        private static readonly Plane GroundPlane = new Plane(Vector3.up, Vector3.zero);
+        private bool _hasTarget;
+        private Vector3 _target;
+        private Vector3 _lastMark;
+        private bool _marked;
+        private bool _joyHidden;
+
+        [Header("LoL 式落点光标")]
+        [SerializeField] private float markerLife = 0.5f;   // 光标存活秒数
+        [SerializeField] private float markerSize = 2.4f;   // 光标世界直径（米）
+        [SerializeField] private Color markerColor = new Color(0.55f, 1f, 0.55f, 1f); // LoL 移动绿
+        private SpriteRenderer _marker;
+        private float _markerT = -1f;
+        private float _markerBaseScale = 1f;
 
         // ---------------- 生命周期 ----------------
         private void OnEnable()
@@ -57,6 +79,66 @@ namespace BattleFortress
         private void Start()
         {
             if (cam == null) cam = Camera.main;
+            if (useTapToMove && !_joyHidden)
+            {
+                _joyHidden = true;
+                var joy = GameObject.Find("Joystick");
+                if (joy != null) joy.SetActive(false); // 点地模式下隐藏虚拟摇杆
+            }
+            BuildMoveMarker();
+        }
+
+        /// <summary>运行时创建一个平铺在地面上的落点光标（不写入场景，停止播放即销毁）</summary>
+        private void BuildMoveMarker()
+        {
+            var spr = Resources.Load<Sprite>(VfxKeys.RingWave);
+            if (spr == null) return;
+            var go = new GameObject("TapMoveMarker");
+            go.transform.SetParent(transform.parent, false); // 放在世界根下，不跟随战车
+            _marker = go.AddComponent<SpriteRenderer>();
+            _marker.sprite = spr;
+            _marker.color = markerColor;
+            _marker.sortingOrder = 8;
+            go.transform.rotation = Quaternion.Euler(90f, 0f, 0f); // XZ 地面平铺
+            float baseSize = spr.bounds.size.x;
+            _markerBaseScale = baseSize > 0.0001f ? markerSize / baseSize : 1f;
+            go.transform.localScale = Vector3.one * _markerBaseScale;
+            go.SetActive(false);
+        }
+
+        private void ShowMoveMarker(Vector3 p)
+        {
+            if (_marker == null) return;
+            var mt = _marker.transform;
+            mt.position = new Vector3(p.x, 0.12f, p.z);
+            mt.localScale = Vector3.one * _markerBaseScale * 0.6f;
+            _marker.color = markerColor;
+            _marker.gameObject.SetActive(true);
+            _markerT = 0f;
+        }
+
+        private void TickMoveMarker(float dt)
+        {
+            if (_markerT < 0f || _marker == null) return;
+            _markerT += dt;
+            float t = Mathf.Clamp01(_markerT / markerLife);
+            // LoL 式：小圈快速弹出到略大，再整体淡出
+            float s = Mathf.Lerp(0.6f, 1.08f, 1f - (1f - t) * (1f - t));
+            _marker.transform.localScale = Vector3.one * _markerBaseScale * s;
+            var c = markerColor;
+            c.a = 1f - t;
+            _marker.color = c;
+            if (t >= 1f)
+            {
+                _markerT = -1f;
+                _marker.gameObject.SetActive(false);
+            }
+        }
+
+        private void HideMoveMarker()
+        {
+            _markerT = -1f;
+            if (_marker != null) _marker.gameObject.SetActive(false);
         }
 
         /// <summary>按进化阶段切换堡垒外观：四个形态都在场景里，只做显隐</summary>
@@ -116,6 +198,7 @@ namespace BattleFortress
             _dash = 0f;
             _cd = 0f;
             _evolveT = 0f;
+            _hasTarget = false; _marked = false; HideMoveMarker();
             ApplyTier(st);
         }
 
@@ -125,6 +208,7 @@ namespace BattleFortress
             transform.position = Vector3.zero;
             _dash = 0f;
             _cd = 0f;
+            _hasTarget = false; _marked = false; HideMoveMarker();
             var pp = transform.position;
             Fx.PlayVfx(VfxKeys.EvolveSheet, pp.x, pp.y + 1.4f, pp.z, 5.5f);
             Fx.PlayVfx(VfxKeys.RingWave, pp.x, pp.y + 0.3f, pp.z, 5.0f);
@@ -133,12 +217,102 @@ namespace BattleFortress
             GameBus.Emit(GameEvents.Float, "复活!");
         }
 
+        // ---------------- 移动输入 ----------------
+        /// <summary>旧模式：虚拟摇杆 → 世界方向（相对相机），圆形小死区，任意方向连续无量化</summary>
+        private bool PollJoystick()
+        {
+            float ax = Joy.x;
+            float ay = Joy.y;
+            if (ax * ax + ay * ay <= 0.04f * 0.04f) return false;
+
+            Vector3 f = cam != null ? cam.transform.forward : Vector3.forward;
+            Vector3 r = cam != null ? cam.transform.right : Vector3.right;
+            f.y = 0f; r.y = 0f;
+            if (f.sqrMagnitude > 0.0001f) f.Normalize(); else f = Vector3.forward;
+            if (r.sqrMagnitude > 0.0001f) r.Normalize(); else r = Vector3.right;
+
+            // Laya 版 ay 向下为正：-ay 表示向上推摇杆时沿相机前方前进
+            Vector3 d = r * ax + f * -ay;
+            d.y = 0f;
+            if (d.sqrMagnitude <= 0.0001f) return false;
+            _dir = d.normalized;
+            return true;
+        }
+
+        /// <summary>
+        /// 新模式：点击/按住屏幕任意空地，射线打到 y=0 地面得到目标点，自动走过去。
+        /// 点在 UI（按钮/面板/摇杆）上不触发；松手后保留目标点继续走到；到点自动停。
+        /// </summary>
+        private bool PollTapMove()
+        {
+            bool held;
+            Vector2 screenPos;
+            int fingerId = -1;
+
+            if (Input.touchCount > 0)
+            {
+                Touch t = Input.GetTouch(0);
+                held = t.phase != TouchPhase.Ended && t.phase != TouchPhase.Canceled;
+                screenPos = t.position;
+                fingerId = t.fingerId;
+            }
+            else
+            {
+                held = Input.GetMouseButton(0);
+                screenPos = Input.mousePosition;
+            }
+
+            if (held && cam != null)
+            {
+                bool overUi = EventSystem.current != null &&
+                    (fingerId >= 0
+                        ? EventSystem.current.IsPointerOverGameObject(fingerId)
+                        : EventSystem.current.IsPointerOverGameObject());
+                if (!overUi)
+                {
+                    Ray ray = cam.ScreenPointToRay(screenPos);
+                    if (GroundPlane.Raycast(ray, out float enter))
+                    {
+                        Vector3 p = ray.GetPoint(enter);
+                        p.y = 0f;
+                        float half = GameConfig.ArenaHalf;
+                        p.x = Mathf.Clamp(p.x, -half, half);
+                        p.z = Mathf.Clamp(p.z, -half, half);
+                        _target = p;
+                        _hasTarget = true;
+                        if (!_marked || (p - _lastMark).sqrMagnitude > markMinMove * markMinMove)
+                        {
+                            _lastMark = p;
+                            _marked = true;
+                            ShowMoveMarker(p); // LoL 式落点光标
+                        }
+                    }
+                }
+            }
+
+            if (!_hasTarget) return false;
+            Vector3 cur = transform.position;
+            Vector3 to = _target - cur;
+            to.y = 0f;
+            float dist = to.magnitude;
+            if (dist <= arriveDistance)
+            {
+                _hasTarget = false; // 到点停下
+                _marked = false;
+                HideMoveMarker();
+                return false;
+            }
+            _dir = to / dist;
+            return true;
+        }
+
         // ---------------- 每帧 ----------------
         private void Update()
         {
             float dt = Mathf.Min(Time.deltaTime, GameConfig.MaxDelta);
             if (_cd > 0f) _cd -= dt;
-            if (GS.Over || GS.Paused) return;
+            if (GS.Over || GS.Paused) { HideMoveMarker(); return; }
+            TickMoveMarker(dt);
 
             // 无敌 = 进化金光演出 或 复活保护（复活时长由配置驱动）
             GS.Invincible = _evolveT > 0f || GS.ReviveInvincibleT > 0f;
@@ -156,27 +330,8 @@ namespace BattleFortress
                 }
             }
 
-            // 摇杆 → 世界方向（相对相机）
-            float ax = Joy.x;
-            float ay = Joy.y;
-            bool moving = false;
-            if (Mathf.Abs(ax) > 0.08f || Mathf.Abs(ay) > 0.08f)
-            {
-                Vector3 f = cam != null ? cam.transform.forward : Vector3.forward;
-                Vector3 r = cam != null ? cam.transform.right : Vector3.right;
-                f.y = 0f; r.y = 0f;
-                if (f.sqrMagnitude > 0.0001f) f.Normalize(); else f = Vector3.forward;
-                if (r.sqrMagnitude > 0.0001f) r.Normalize(); else r = Vector3.right;
-
-                // Laya 版 ay 向下为正，这里沿用：-ay 表示向上推摇杆时沿相机前方前进
-                Vector3 d = r * ax + f * -ay;
-                d.y = 0f;
-                if (d.sqrMagnitude > 0.0001f)
-                {
-                    _dir = d.normalized;
-                    moving = true;
-                }
-            }
+            // 移动输入：默认点地移动；useTapToMove=false 时回退旧摇杆
+            bool moving = useTapToMove ? PollTapMove() : PollJoystick();
 
             if (_dash > 0f)
             {
