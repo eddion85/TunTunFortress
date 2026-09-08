@@ -58,6 +58,18 @@ namespace BattleFortress
 
         public const float ArenaHalf = 29f;           // 与可见地面对齐，留 2m 视觉余量
 
+        // ---------------- 移动冒烟拖尾 [设计]：车尾持续吐烟，独立对象池 ----------------
+        public const float TrailInterval = 0.10f;       // 普通移动吐烟间隔（秒/团）
+        public const float TrailDashInterval = 0.06f;   // 冲撞期间吐烟更密
+        public const float TrailLife = 0.75f;           // 单团烟存活时间（秒）
+        public const float TrailScale = 0.9f;           // 单团烟基础 UI 尺寸（256px 贴图 × scale × 0.75）
+        public const float TrailGrow = 1.8f;            // 存活期间扩散倍率（末态 = 1 + 1.8 倍）
+        public const float TrailRise = 5f;              // 屏幕上飘像素（贴地扬尘，数值很小）
+        public const float TrailAlpha = 0.42f;          // 起始透明度，随后线性淡出
+        public const float TrailBack = 0.9f;            // 生成点距车体中心向后的距离（米）
+        public const float TrailJitter = 0.22f;         // 生成点横向随机散布（米）
+        public const int TrailMax = 12;                 // 同屏拖尾烟团上限（独立池，不挤占战斗特效）
+
         // ---------------- 武器 ----------------
         public const float SideCd = 1.4f;             // [策划书 3.5s → 压缩保手感]
         public const float SideDmg = 12f;             // [策划书 4.1]

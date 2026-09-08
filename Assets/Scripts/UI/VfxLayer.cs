@@ -20,6 +20,7 @@ namespace BattleFortress
 
         [Header("容量上限（移动端收紧，防止堆成一片糊）")]
         [SerializeField] private int maxFx = 14;
+        [SerializeField] private int maxTrail = 12;   // 移动冒烟拖尾独立上限，不挤占战斗特效
         [SerializeField] private int maxDmg = 12;
         [SerializeField] private int maxBar = 24;
         [SerializeField] private int maxShadow = 22;
@@ -38,6 +39,8 @@ namespace BattleFortress
             public float scale;
             public float spin;
             public float rise;
+            public float growEnd;     // 末态扩散倍率：尺寸从 scale 涨到 scale*(1+growEnd)
+            public float startAlpha;  // 起始透明度，随后线性淡出
             public int frame = -1;
         }
 
@@ -58,6 +61,8 @@ namespace BattleFortress
 
         private readonly List<FxItem> _items = new List<FxItem>();
         private readonly List<Image> _fxPool = new List<Image>();
+        private readonly List<FxItem> _trailItems = new List<FxItem>();
+        private readonly List<Image> _trailPool = new List<Image>();
         private readonly List<Bar> _bars = new List<Bar>();
         private readonly List<Image> _shadows = new List<Image>();
         private readonly List<DmgText> _dmgs = new List<DmgText>();
@@ -121,8 +126,12 @@ namespace BattleFortress
         private void ClearAll(object payload)
         {
             for (int i = 0; i < _items.Count; i++)
-                if (_items[i] != null && _items[i].img != null) RecycleFx(_items[i].img);
+                if (_items[i] != null && _items[i].img != null) RecycleFx(_items[i].img, _fxPool);
             _items.Clear();
+
+            for (int i = 0; i < _trailItems.Count; i++)
+                if (_trailItems[i] != null && _trailItems[i].img != null) RecycleFx(_trailItems[i].img, _trailPool);
+            _trailItems.Clear();
 
             for (int i = 0; i < _bars.Count; i++)
                 if (_bars[i] != null && _bars[i].root != null) _bars[i].root.SetActive(false);
@@ -148,13 +157,13 @@ namespace BattleFortress
             return arr;
         }
 
-        private Image ObtainFx()
+        private Image ObtainFx(List<Image> pool)
         {
             Image img;
-            if (_fxPool.Count > 0)
+            if (pool.Count > 0)
             {
-                img = _fxPool[_fxPool.Count - 1];
-                _fxPool.RemoveAt(_fxPool.Count - 1);
+                img = pool[pool.Count - 1];
+                pool.RemoveAt(pool.Count - 1);
             }
             else
             {
@@ -172,27 +181,41 @@ namespace BattleFortress
             return img;
         }
 
-        private void RecycleFx(Image img)
+        private void RecycleFx(Image img, List<Image> pool)
         {
             if (img == null) return;
             img.gameObject.SetActive(false);
-            if (_fxPool.Count < 24) _fxPool.Add(img);
+            if (pool.Count < 24) pool.Add(img);
             else Destroy(img.gameObject);
         }
 
         private void OnVfx(object payload)
         {
             var p = payload as VfxPayload;
-            if (p == null || container == null || _items.Count >= maxFx) return;
+            if (p == null || container == null) return;
+
+            // 拖尾走独立列表与对象池，保证烟团再多也挤不掉受击/爆炸等战斗特效
+            var live = p.trail ? _trailItems : _items;
+            var pool = p.trail ? _trailPool : _fxPool;
+            int cap = p.trail ? Mathf.Max(1, maxTrail) : maxFx;
+            if (live.Count >= cap)
+            {
+                // 池满时淘汰最老的一个，而不是直接丢弃新特效
+                var oldest = live[0];
+                live.RemoveAt(0);
+                if (oldest != null && oldest.img != null) RecycleFx(oldest.img, pool);
+            }
 
             var frames = LoadFrames(p.url);
             if (frames.Length == 0) return;
 
-            var img = ObtainFx();
+            var img = ObtainFx(pool);
+            if (p.trail) img.transform.SetAsFirstSibling(); // 扬尘压在战斗特效/玩家下层
             img.sprite = frames[0];
 
-            float life = frames.Length > 1 ? 0.28f : 0.34f;
-            _items.Add(new FxItem
+            bool sheet = frames.Length > 1;
+            float life = p.life > 0f ? p.life : (sheet ? 0.28f : 0.34f);
+            live.Add(new FxItem
             {
                 img = img,
                 world = new Vector3(p.x, p.y, p.z),
@@ -200,8 +223,10 @@ namespace BattleFortress
                 maxLife = life,
                 frames = frames,
                 scale = p.scale,
-                spin = frames.Length > 1 ? 0f : Random.value * 40f - 20f,
-                rise = frames.Length > 1 ? 10f : 26f,
+                spin = sheet ? 0f : Random.value * 40f - 20f,
+                rise = p.rise >= 0f ? p.rise : (sheet ? 10f : 26f),
+                growEnd = p.grow >= 0f ? p.grow : (sheet ? 0.35f : 0.8f),
+                startAlpha = p.alpha >= 0f ? p.alpha : 1f,
                 frame = 0
             });
         }
@@ -515,18 +540,25 @@ namespace BattleFortress
 
             UpdateDmgs(dt);
 
-            // 特效推进
-            for (int i = _items.Count - 1; i >= 0; i--)
+            // 特效推进（战斗特效 + 移动拖尾两条独立列表）
+            StepFxList(_items, _fxPool, dt);
+            StepFxList(_trailItems, _trailPool, dt);
+        }
+
+        /// <summary>推进一批特效：序列帧、贴地投影、扩散、上飘、淡出；寿命结束回收到对应池</summary>
+        private void StepFxList(List<FxItem> list, List<Image> pool, float dt)
+        {
+            for (int i = list.Count - 1; i >= 0; i--)
             {
-                var it = _items[i];
+                var it = list[i];
                 var img = it.img;
-                if (img == null) { _items.RemoveAt(i); continue; }
+                if (img == null) { list.RemoveAt(i); continue; }
 
                 it.life -= dt;
                 if (it.life <= 0f)
                 {
-                    RecycleFx(img);
-                    _items.RemoveAt(i);
+                    RecycleFx(img, pool);
+                    list.RemoveAt(i);
                     continue;
                 }
 
@@ -552,12 +584,13 @@ namespace BattleFortress
                 img.gameObject.SetActive(true);
                 img.rectTransform.anchoredPosition = new Vector2(local.x, local.y - t * it.rise);
 
-                float grow = it.frames.Length > 1 ? 1f + t * 0.35f : 1f + t * 0.8f;
+                float grow = 1f + t * it.growEnd;
                 float s = it.scale * grow * 0.75f;
                 img.rectTransform.localScale = new Vector3(s, s, 1f);
 
                 var col = img.color;
-                col.a = it.frames.Length > 1 ? 1f - t * 0.25f : 1f - t;
+                // 序列帧只轻微淡出；单帧特效（含拖尾烟团）从 startAlpha 线性淡出
+                col.a = it.frames.Length > 1 ? 1f - t * 0.25f : it.startAlpha * (1f - t);
                 img.color = col;
 
                 if (it.spin != 0f) img.rectTransform.Rotate(0f, 0f, it.spin * dt);

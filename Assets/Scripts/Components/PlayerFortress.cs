@@ -62,6 +62,8 @@ namespace BattleFortress
         [SerializeField] private float edgeEps = 0.08f;       // 距边界多少米视为贴边
         private float _edgeTipT;
 
+        private float _trailT;   // 移动冒烟拖尾吐烟计时
+
         [Header("正面直射炮外观（模型内开关节点默认隐藏，HasFrontCannon 解锁后显示）")]
         [SerializeField] private string cannonNodeName = "dbdp";           // 形态模型内炮开关节点的名字（Blender 合成时命名）
         private bool _cannonBuilt;
@@ -421,6 +423,22 @@ namespace BattleFortress
             pos.z = Mathf.Clamp(pos.z + _dir.z * sp * dt, -half, half);
             pos.y = 0f;
             transform.position = pos;
+
+            // 移动冒烟拖尾：按固定间隔从车尾吐一团烟，贴地扩散淡出（参数全部配置驱动）
+            _trailT -= dt;
+            if (_trailT <= 0f)
+            {
+                bool dashing = _dash > 0f;
+                _trailT = dashing ? GameConfig.TrailDashInterval : GameConfig.TrailInterval;
+                Vector3 side = new Vector3(-_dir.z, 0f, _dir.x);
+                float jitter = (Random.value * 2f - 1f) * GameConfig.TrailJitter;
+                Vector3 smokePos = pos - _dir * GameConfig.TrailBack + side * jitter;
+                smokePos.y = 0.25f;
+                // 体型越大烟团略大；冲撞时烟更浓更大；每团加少量随机避免机械重复
+                int st = Mathf.Clamp(GS.Stage, 0, GameConfig.StageScale.Length - 1);
+                float sizeMul = Mathf.Sqrt(GameConfig.StageScale[st]) * (dashing ? 1.5f : 1f) * (0.85f + Random.value * 0.3f);
+                Fx.PlayTrailSmoke(smokePos, GameConfig.TrailScale * sizeMul);
+            }
 
             // 朝墙走且已贴边 → 非阻断提示（自动上浮淡出，不暂停游戏；节流防刷屏）
             bool hitX = (_dir.x > 0.01f && pos.x >= half - edgeEps) || (_dir.x < -0.01f && pos.x <= -half + edgeEps);

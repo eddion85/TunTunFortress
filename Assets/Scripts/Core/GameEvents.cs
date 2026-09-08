@@ -30,6 +30,12 @@ namespace BattleFortress
         public string url;
         public float x, y, z;
         public float scale = 1f;
+        // 以下为可选表现覆盖项，<0 表示沿用 VfxLayer 默认值
+        public float life = -1f;      // 存活秒数
+        public float rise = -1f;      // 屏幕上飘像素
+        public float grow = -1f;      // 存活期扩散倍率（末态 = 1 + grow）
+        public float alpha = -1f;     // 起始透明度
+        public bool trail;            // true = 移动拖尾，走独立对象池与上限
     }
 
     /// <summary>世界空间伤害数字请求</summary>

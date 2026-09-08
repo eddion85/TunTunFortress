@@ -9,21 +9,31 @@ namespace BattleFortress
     /// </summary>
     public static class Fx
     {
-        /// <summary>在指定世界坐标播放一张特效贴图</summary>
-        public static void PlayVfx(string url, Vector3 pos, float scale = 1f)
+        /// <summary>在指定世界坐标播放一张特效贴图；life/rise/grow/alpha 可选覆盖默认表现</summary>
+        public static void PlayVfx(string url, Vector3 pos, float scale = 1f,
+            float life = -1f, float rise = -1f, float grow = -1f, float alpha = -1f, bool trail = false)
         {
             if (string.IsNullOrEmpty(url)) return;
             GameBus.Emit(GameEvents.Vfx, new VfxPayload
             {
                 url = url,
                 x = pos.x, y = pos.y, z = pos.z,
-                scale = scale
+                scale = scale,
+                life = life, rise = rise, grow = grow, alpha = alpha,
+                trail = trail
             });
         }
 
         public static void PlayVfx(string url, float x, float y, float z, float scale = 1f)
         {
             PlayVfx(url, new Vector3(x, y, z), scale);
+        }
+
+        /// <summary>移动拖尾烟团：走 VfxLayer 独立拖尾池，参数全部来自 GameConfig</summary>
+        public static void PlayTrailSmoke(Vector3 pos, float scale)
+        {
+            PlayVfx(VfxKeys.SmokePuff, pos, scale,
+                GameConfig.TrailLife, GameConfig.TrailRise, GameConfig.TrailGrow, GameConfig.TrailAlpha, true);
         }
 
         /// <summary>世界空间飘伤害数字（在敌人头顶弹出，比固定屏幕位置更有打击感）</summary>
