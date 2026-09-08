@@ -285,6 +285,8 @@ namespace BattleFortress.EditorTools
                 coil.transform.localPosition = new Vector3(0f, 1.6f, -0.6f);
             }
 
+            // 正面直射炮外观已在模型内合成（Tier3 的 dbdp 节点），运行时由 PlayerFortress 按 GS.HasFrontCannon 显隐
+
             // 组件
             var pf = root.AddComponent<PlayerFortress>();
             var aw = root.AddComponent<AutoWeapon>();

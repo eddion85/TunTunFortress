@@ -39,8 +39,7 @@ namespace BattleFortress
 
         private static readonly List<Card> Pool = new List<Card>
         {
-            new Card { title = "正面直射炮", desc = "解锁正面高伤主炮", rare = 2, icon = "art/ui/img_icon_weapon_front",
-                       can = () => !GS.HasFrontCannon, run = () => { GS.HasFrontCannon = true; } },
+            // 正面直射炮只在商店主动加装（ShopPanel），升级卡池不再产出
             new Card { title = "回旋连枷", desc = "两枚连枷环绕堡垒持续碾压", rare = 2, icon = "art/ui/img_icon_weapon_flail",
                        can = () => !GS.HasFlail, run = () => { GS.HasFlail = true; } },
             new Card { title = "地雷投放舱", desc = "行进途中自动布雷", rare = 2, icon = "art/ui/img_icon_weapon_mine",

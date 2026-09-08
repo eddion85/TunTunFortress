@@ -207,7 +207,7 @@ namespace BattleFortress
                     MaxHp = Mathf.Round(GameConfig.MaxHp * Meta.HpMul() * HpBonusMul * GameConfig.StageHp[Stage]);
                     // 进化按当前血量比例放大，不再免费回满
                     Hp = Mathf.Max(1, Mathf.Round(MaxHp * ratio));
-                    if (Stage >= 1) HasFrontCannon = true;
+                    // 正面炮不再随进阶自动解锁：只有商店主动加装才显示 dbdp
                     GameBus.Emit(GameEvents.Evolve, Stage);
                     AudioKit.PlaySfx(SfxKeys.Evolve);
                 }

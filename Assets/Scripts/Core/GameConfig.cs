@@ -143,6 +143,7 @@ namespace BattleFortress
             public const int BossCountMax = 3;          // 同屏 Boss 数量上限
             public const float BossGrowEvery = 75f;     // Boss 每存活到 N 秒变强一档
             public const float BossGrow = 1.3f;         // Boss 每档血量倍率
+            public const int BossTargetEvery = 2;       // 武器每 N 发强制点名最近的 Boss，防止近身小兵永久挡火导致 Boss 不掉血（1=每发都优先）
             public const int BossCoin = 40;             // 击杀 Boss 额外金币
             public const int KillCoinBase = 3;          // 每杀一只普通兵基础金币（另加敌种 prog 值）
 

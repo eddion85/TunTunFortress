@@ -26,6 +26,8 @@ namespace BattleFortress
         private float _cdL = 0.6f;
         private float _cdR = 1.2f;
         private float _cdF = 1.6f;
+        private int _sideSeq;   // 侧炮发炮序号（轮流点名 Boss）
+        private int _frontSeq;  // 正面炮发炮序号
         private readonly List<Shell> _shots = new List<Shell>();
 
         private void OnEnable()
@@ -51,6 +53,8 @@ namespace BattleFortress
             _cdL = 0.6f;
             _cdR = 1.2f;
             _cdF = 1.6f;
+            _sideSeq = 0;
+            _frontSeq = 0;
         }
 
         /// <summary>取炮口世界坐标，未接线时回退到堡垒中心上方</summary>
@@ -66,7 +70,8 @@ namespace BattleFortress
         /// <param name="pos">堡垒位置</param>
         /// <param name="side">-1 = 只挑左半边、1 = 只挑右半边、0 = 不限</param>
         /// <param name="cone">&gt;0 时只挑正前方锥形内的目标（正面炮用）</param>
-        private EnemyUnit Nearest(Vector3 pos, int side, float cone)
+        /// <param name="bossOnly">只挑 Boss（Boss 体积大，不受左右半场限制，避免被近身小兵永久「抢火」）</param>
+        private EnemyUnit Nearest(Vector3 pos, int side, float cone, bool bossOnly = false)
         {
             float fx = 0f, fz = 1f, rx = 1f, rz = 0f;
             if (side != 0 || cone > 0f)
@@ -84,6 +89,7 @@ namespace BattleFortress
             {
                 var e = Registry.Enemies[i];
                 if (e == null || e.Dead || !e.gameObject.activeInHierarchy) continue;
+                if (bossOnly && !e.IsBoss) continue;
 
                 Vector3 p = e.transform.position;
                 float dx = p.x - pos.x;
@@ -95,7 +101,8 @@ namespace BattleFortress
                 // 避免玩家明明没看到敌人、炮却自动把屏幕外目标打死的违和感
                 if (!IsOnScreen(p)) continue;
 
-                if (side != 0)
+                // 点名 Boss 时不看左右半场（Boss 是大型目标，两侧炮都该能打）
+                if (!bossOnly && side != 0)
                 {
                     // 投影到右向量，判断敌人在左半边还是右半边
                     if ((dx * rx + dz * rz) * side < 0f) continue;
@@ -111,6 +118,20 @@ namespace BattleFortress
                 best = e;
             }
             return best;
+        }
+
+        /// <summary>
+        /// 侧炮选敌：正常选最近敌人；但每 BossTargetEvery 发强制点名射程内最近的 Boss，
+        /// 避免 Boss 被一圈近身小兵挡住火力、血条完全不掉。
+        /// </summary>
+        private EnemyUnit PickSideTarget(Vector3 pos, int side)
+        {
+            var normal = Nearest(pos, side, 0f);
+            int every = Mathf.Max(1, GameConfig.Survival.BossTargetEvery);
+            _sideSeq++;
+            if (_sideSeq % every != 0) return normal;
+            var boss = Nearest(pos, side, 0f, true);
+            return boss != null ? boss : normal;
         }
 
         /// <summary>
@@ -159,7 +180,7 @@ namespace BattleFortress
                 _cdL -= dt;
                 if (_cdL <= 0f)
                 {
-                    var t = Nearest(pos, -1, 0f);
+                    var t = PickSideTarget(pos, -1);
                     if (t != null)
                     {
                         _cdL = sideCd;
@@ -172,7 +193,7 @@ namespace BattleFortress
                 _cdR -= dt;
                 if (_cdR <= 0f)
                 {
-                    var t = Nearest(pos, 1, 0f);
+                    var t = PickSideTarget(pos, 1);
                     if (t != null)
                     {
                         _cdR = sideCd;
@@ -181,13 +202,17 @@ namespace BattleFortress
                     else _cdR = 0.25f;
                 }
 
-                // 正面直射炮：一阶进化解锁，只打正前方锥形内目标 [策划书 4.1]
+                // 正面直射炮：商店主动加装后解锁（GS.HasFrontCannon），只打正前方锥形内目标
                 if (GS.HasFrontCannon)
                 {
                     _cdF -= dt;
                     if (_cdF <= 0f)
                     {
-                        var t = Nearest(pos, 0, 0.35f);
+                        // 正面炮同样隔发点名锥形内 Boss，避免被小兵挡火
+                        _frontSeq++;
+                        var t = (_frontSeq % Mathf.Max(1, GameConfig.Survival.BossTargetEvery) == 0)
+                            ? (Nearest(pos, 0, 0.35f, true) ?? Nearest(pos, 0, 0.35f))
+                            : Nearest(pos, 0, 0.35f);
                         if (t != null)
                         {
                             _cdF = GameConfig.FrontCd * GS.CdMul;

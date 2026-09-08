@@ -62,10 +62,17 @@ namespace BattleFortress
         [SerializeField] private float edgeEps = 0.08f;       // 距边界多少米视为贴边
         private float _edgeTipT;
 
+        [Header("正面直射炮外观（模型内开关节点默认隐藏，HasFrontCannon 解锁后显示）")]
+        [SerializeField] private string cannonNodeName = "dbdp";           // 形态模型内炮开关节点的名字（Blender 合成时命名）
+        private bool _cannonBuilt;
+        // 形态模型内部的炮开关节点（如 Tier3 的 dbdp），默认隐藏，按 GS.HasFrontCannon 显隐
+        private readonly System.Collections.Generic.List<GameObject> _cannonNodes = new System.Collections.Generic.List<GameObject>();
+
         // ---------------- 生命周期 ----------------
         private void OnEnable()
         {
             _tiers = new[] { tier0, tier1, tier2, tier3 };
+            BuildFrontCannon(); // 尽早隐藏模型内炮节点（dbdp），保证首帧就不显示
             ApplyTier(GS.Stage);
             GameBus.On(GameEvents.Evolve, OnEvolve);
             GameBus.On(GameEvents.Skill, OnSkill);
@@ -93,6 +100,53 @@ namespace BattleFortress
                 if (joy != null) joy.SetActive(false); // 点地模式下隐藏虚拟摇杆
             }
             BuildMoveMarker();
+            BuildFrontCannon();
+        }
+
+        /// <summary>
+        /// 在各形态模型内部递归查找炮开关节点（名字由 cannonNodeName 指定，默认 dbdp）。
+        /// 炮外观已在模型里合成，找到后默认隐藏，由 GS.HasFrontCannon 统一控制显隐，
+        /// 节点挂在模型层级下，会随车体系放、缩放、转向，无需额外坐标计算。
+        /// </summary>
+        private void BuildFrontCannon()
+        {
+            if (_cannonBuilt) return;
+            _cannonBuilt = true;
+            _cannonNodes.Clear();
+            if (_tiers == null || string.IsNullOrEmpty(cannonNodeName)) return;
+            for (int i = 0; i < _tiers.Length; i++)
+            {
+                if (_tiers[i] == null) continue;
+                var node = FindDeepChild(_tiers[i].transform, cannonNodeName);
+                if (node != null)
+                {
+                    node.gameObject.SetActive(false); // 默认不显示，加装正面炮（GS.HasFrontCannon）后才显示
+                    _cannonNodes.Add(node.gameObject);
+                }
+            }
+        }
+
+        /// <summary>递归按名字查找子节点（glTFast 导入的模型层级较深）</summary>
+        private static Transform FindDeepChild(Transform root, string name)
+        {
+            if (root.name == name) return root;
+            for (int i = 0; i < root.childCount; i++)
+            {
+                var hit = FindDeepChild(root.GetChild(i), name);
+                if (hit != null) return hit;
+            }
+            return null;
+        }
+
+        /// <summary>按解锁状态显隐模型内炮节点（升级卡/商店/一阶进化解锁，重开关卡时隐藏）</summary>
+        private void SyncFrontCannon()
+        {
+            bool show = GS.HasFrontCannon;
+            for (int i = 0; i < _cannonNodes.Count; i++)
+            {
+                var n = _cannonNodes[i];
+                if (n != null && n.activeSelf != show) n.SetActive(show);
+            }
         }
 
         /// <summary>运行时创建一个平铺在地面上的落点光标（不写入场景，停止播放即销毁）</summary>
@@ -320,6 +374,7 @@ namespace BattleFortress
             float dt = Mathf.Min(Time.deltaTime, GameConfig.MaxDelta);
             if (_cd > 0f) _cd -= dt;
             if (_edgeTipT > 0f) _edgeTipT -= dt;
+            SyncFrontCannon(); // 升级卡/商店/进化解锁后立刻显示，重开后自动隐藏
             if (GS.Over || GS.Paused) { HideMoveMarker(); return; }
             TickMoveMarker(dt);
 
