@@ -27,15 +27,15 @@ namespace BattleFortress
         public static readonly EnemyKind[] KINDS =
         {
             // 羊：HP 1~3、伤害 0、经验 4~8 [策划书 4.4]
-            new EnemyKind { key = "sheep",  hp = 3,  dmg = 0, exp = 6,  expMin = 4, expMax = 8,  prog = 2, speed = 3.0f, size = 0, flee = true,  wander = true, scale = 0.9f  },
+            new EnemyKind { key = "sheep",  hp = 3,  dmg = 0, exp = 6,  expMin = 4, expMax = 8,  prog = 2, speed = 2.4f, size = 0, flee = true,  wander = true, scale = 0.9f  },
             // 奶牛 [设计：资源包新增敌种]
-            new EnemyKind { key = "cow",    hp = 8,  dmg = 4, exp = 11, prog = 5, speed = 3.3f, size = 1, flee = false, scale = 1.1f  },
+            new EnemyKind { key = "cow",    hp = 8,  dmg = 4, exp = 11, prog = 5, speed = 2.6f, size = 1, flee = false, scale = 1.1f  },
             // 农夫：HP 5、伤害 3、经验 7 [策划书 4.4]
-            new EnemyKind { key = "farmer", hp = 5,  dmg = 3, exp = 7,  prog = 4, speed = 3.3f, size = 1, flee = false, scale = 1.0f  },
+            new EnemyKind { key = "farmer", hp = 5,  dmg = 3, exp = 7,  prog = 4, speed = 2.6f, size = 1, flee = false, scale = 1.0f  },
             // 弓箭手：HP 9、伤害 5、经验 14、远程 [策划书 4.4]
-            new EnemyKind { key = "archer", hp = 9,  dmg = 5, exp = 14, prog = 6, speed = 3.0f, size = 1, flee = false, scale = 1.0f, ranged = true },
+            new EnemyKind { key = "archer", hp = 9,  dmg = 5, exp = 14, prog = 6, speed = 2.4f, size = 1, flee = false, scale = 1.0f, ranged = true },
             // 骑兵：HP 14、伤害 7、经验 18、绕后 [策划书 4.4]
-            new EnemyKind { key = "rider",  hp = 14, dmg = 7, exp = 18, prog = 8, speed = 4.9f, size = 2, flee = false, scale = 1.15f, flank = true }
+            new EnemyKind { key = "rider",  hp = 14, dmg = 7, exp = 18, prog = 8, speed = 3.9f, size = 2, flee = false, scale = 1.15f, flank = true }
         };
 
         public static EnemyKind KindByKey(string k)

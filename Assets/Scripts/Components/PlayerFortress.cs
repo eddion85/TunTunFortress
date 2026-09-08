@@ -49,10 +49,10 @@ namespace BattleFortress
         private bool _marked;
         private bool _joyHidden;
 
-        [Header("点击落点光标（仅引导用，小而轻）")]
+        [Header("点击落点光标（仅引导用）")]
         [SerializeField] private float markerLife = 0.45f;  // 光标存活秒数
-        [SerializeField] private float markerSize = 1.8f;   // 光标世界直径（米）
-        [SerializeField] private Color markerColor = Color.white; // 贴图自带青色，默认不染色
+        [SerializeField] private float markerSize = 3.0f;   // 光标世界直径（米）
+        [SerializeField] private Color markerColor = new Color(1f, 0.86f, 0.32f, 1f); // 暖黄引导色
         private SpriteRenderer _marker;
         private float _markerT = -1f;
         private float _markerBaseScale = 1f;

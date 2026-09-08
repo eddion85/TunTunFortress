@@ -28,7 +28,7 @@ namespace BattleFortress
         private readonly Dictionary<string, GameObject> _tpl = new Dictionary<string, GameObject>();
         private float _timer = GameConfig.Survival.SpawnFirstDelay;
         private int _devourSeq;
-        private bool _bossAlive;   // 场上是否已有 Boss（同时只允许一只）
+        private readonly List<float> _spawnStamps = new List<float>(); // 普通兵出生时间戳（滚动窗口限流）
 
         // ---------------- 生命周期 ----------------
         private void Awake()
@@ -66,7 +66,7 @@ namespace BattleFortress
             DespawnAllEnemies();
             DespawnAllArrows();
             _timer = GameConfig.Survival.SpawnFirstDelay;
-            _bossAlive = false;
+            _spawnStamps.Clear();
         }
 
         /// <summary>复活：按配置清空普通兵与弓箭，Boss 保留（继续战斗）</summary>
@@ -86,6 +86,7 @@ namespace BattleFortress
                 }
             }
             _timer = GameConfig.Survival.SpawnFirstDelay;
+            _spawnStamps.Clear(); // 复活清场后刷怪窗口重新计数
             if (player != null) player.position = Vector3.zero;
         }
 
@@ -113,6 +114,27 @@ namespace BattleFortress
                 if (e != null && !e.IsBoss && !e.Dead) n++;
             }
             return n;
+        }
+
+        /// <summary>场上存活的 Boss 数量</summary>
+        private static int AliveBossCount()
+        {
+            int n = 0;
+            for (int i = 0; i < Registry.Enemies.Count; i++)
+            {
+                var e = Registry.Enemies[i];
+                if (e != null && e.IsBoss && !e.Dead) n++;
+            }
+            return n;
+        }
+
+        /// <summary>滚动窗口限流：最近 SpawnWindowSeconds 秒内出生的普通兵是否已达上限</summary>
+        private bool WindowSpawnBlocked()
+        {
+            float now = GS.Elapsed;
+            float win = GameConfig.Survival.SpawnWindowSeconds;
+            _spawnStamps.RemoveAll(t => now - t > win);
+            return _spawnStamps.Count >= GameConfig.Survival.SpawnPerWindowCap;
         }
 
         // ---------------- 刷怪 ----------------
@@ -165,6 +187,7 @@ namespace BattleFortress
         {
             // 普通兵数量受配置上限约束（Boss 不占此名额），总单位数另有 MaxUnits 兜底
             if (MobCount() >= GameConfig.Survival.MobCap) return;
+            if (WindowSpawnBlocked()) return; // 30s 滚动窗口出生数量上限
             if (Registry.Enemies.Count >= GameConfig.MaxUnits || player == null) return;
             var kind = PickKind();
             Vector3 pp = player.position;
@@ -173,13 +196,13 @@ namespace BattleFortress
             float half = GameConfig.ArenaHalf;
             float x = Mathf.Clamp(pp.x + Mathf.Cos(ang) * dist, -half, half);
             float z = Mathf.Clamp(pp.z + Mathf.Sin(ang) * dist, -half, half);
-            SpawnAt(kind, x, z);
+            if (SpawnAt(kind, x, z) != null) _spawnStamps.Add(GS.Elapsed);
         }
 
-        /// <summary>Boss 出场：使用专属战争坦克模型；强度随存活时间成长（配置驱动）</summary>
-        private void SpawnBoss()
+        /// <summary>Boss 出场：使用专属战争坦克模型；强度随存活时间成长（配置驱动）。slot=同屏序号，多只时环形落位</summary>
+        private void SpawnBoss(int slot)
         {
-            if (_bossAlive || player == null) return;
+            if (player == null) return;
 
             Vector3 pp = player.position;
             // Boss 复用骑兵的战斗数值/行为，但用专属坦克模型
@@ -187,10 +210,13 @@ namespace BattleFortress
             GameObject prefab = tplBoss != null ? tplBoss : tplRider;
             if (prefab == null) return;
 
-            _bossAlive = true;
             GS.BossAlive = true;
 
-            var go = ObjectPool.Spawn(prefab, new Vector3(pp.x, 0f, pp.z - 18f), Quaternion.identity, transform);
+            // 多只 Boss 沿玩家外圈不同方向落位，避免叠在一起
+            float ang = -Mathf.PI / 2f + slot * (Mathf.PI * 2f / Mathf.Max(2, GameConfig.Survival.BossCountMax));
+            float bx = Mathf.Clamp(pp.x + Mathf.Cos(ang) * 18f, -GameConfig.ArenaHalf, GameConfig.ArenaHalf);
+            float bz = Mathf.Clamp(pp.z + Mathf.Sin(ang) * 18f, -GameConfig.ArenaHalf, GameConfig.ArenaHalf);
+            var go = ObjectPool.Spawn(prefab, new Vector3(bx, 0f, bz), Quaternion.identity, transform);
             go.transform.localScale = new Vector3(EnemyDefs.Boss.Scale, EnemyDefs.Boss.Scale, EnemyDefs.Boss.Scale);
 
             // Boss 血量 = 时间难度倍率 × Boss 档位成长
@@ -276,11 +302,9 @@ namespace BattleFortress
             _devourSeq = (_devourSeq + 1) % 3;
             AudioKit.PlaySfx(_devourSeq == 0 ? SfxKeys.Devour1 : _devourSeq == 1 ? SfxKeys.Devour2 : SfxKeys.Devour3);
 
-            // Boss 死亡：安排下一只 Boss 的出场时间（配置间隔）
+            // Boss 死亡：安排下一只 Boss 的出场时间（配置间隔）；是否真的补由主循环按数量目标判断
             if (e.IsBoss)
             {
-                _bossAlive = false;
-                GS.BossAlive = false;
                 GS.BossWindowStart = GS.Elapsed;
                 GS.NextBossTime = GS.Elapsed + GameConfig.Survival.BossInterval;
                 AudioKit.PlaySfx(SfxKeys.ExplosionBig);
@@ -350,9 +374,18 @@ namespace BattleFortress
                 for (int b = 0; b < profile.burst; b++) Spawn();
             }
 
-            // Boss 按时间表出场：首次 BossFirstTime，之后每击杀一只隔 BossInterval
-            if (!_bossAlive && GS.Elapsed >= GS.NextBossTime)
-                SpawnBoss();
+            // Boss 按时间表出场：数量目标随存活时间递增（后期难度来源），不足且到点就补
+            int aliveBoss = AliveBossCount();
+            GS.BossAlive = aliveBoss > 0;
+            int bossTarget = GameConfig.BossCountAt(GS.Elapsed);
+            if (aliveBoss < bossTarget && GS.Elapsed >= GS.NextBossTime)
+            {
+                SpawnBoss(aliveBoss);
+                // 同批次还缺 Boss 时按较短间隔继续补齐，否则走正常 Boss 间隔
+                GS.NextBossTime = GS.Elapsed + (aliveBoss + 1 < bossTarget
+                    ? GameConfig.Survival.BossBatchGap
+                    : GameConfig.Survival.BossInterval);
+            }
 
             UpdateProjectiles(dt, pp);
 

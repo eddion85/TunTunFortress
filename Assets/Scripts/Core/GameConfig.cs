@@ -68,7 +68,8 @@ namespace BattleFortress
 
         // ---------------- 进化 ----------------
         public static readonly int[] EvolveLevels = { 4, 6, 8 };        // [策划书 4.1]
-        public static readonly float[] StageScale = { 1f, 1.25f, 1.5f, 1.8f };
+        // 每进阶 1 级模型放大 1.5 倍：1 / 1.5 / 2.25 / 3.375
+        public static readonly float[] StageScale = { 1f, 1.5f, 2.25f, 3.375f };
         public static readonly float[] StageHp = { 1f, 1.4f, 1.9f, 2.5f };
         public const float EvolveShowTime = 1.5f;     // [策划书] 金光变身 1.5s
 
@@ -97,13 +98,17 @@ namespace BattleFortress
             public const float BurstEvery = 35f;            // 每存活 N 秒，每波多刷 1 只
             public const int BurstCap = 4;                  // 每波份数上限
             public const int MobCap = 22;                   // 同屏普通兵上限（不含 Boss，达到就暂停刷小怪）
+            // 滚动窗口限流：任意 SpawnWindowSeconds 秒内新刷出的普通兵不超过 SpawnPerWindowCap，
+            // 把小兵数量压住；后期难度改由 Boss 的数量与血量承担（见 BossCountStep / BossGrow）
+            public const float SpawnWindowSeconds = 30f;    // 刷怪数量统计窗口（秒）
+            public const int SpawnPerWindowCap = 16;        // 窗口内普通兵出生数量上限
 
             // ---------- 敌人成长：每 StepSeconds 秒乘一次 Grow（指数曲线）----------
             public const float StepSeconds = 30f;
             public const float HpGrow = 1.16f;              // 血量每 30s ×1.16
             public const float DmgGrow = 1.09f;             // 伤害每 30s ×1.09
-            public const float SpdGrow = 1.035f;            // 移速每 30s ×1.035
-            public const float SpdCap = 1.5f;               // 移速倍率上限，避免快到无法躲避
+            public const float SpdGrow = 1.02f;             // 小兵移速每 30s ×1.02（放缓，避免后期跑不过来）
+            public const float SpdCap = 1.2f;               // 小兵移速倍率上限
 
             // ---------- 敌种按存活时间解锁（下标对应 EnemyDefs.KINDS：羊/牛/农夫/弓/骑）----------
             public static readonly float[] TierUnlock = { 0f, 12f, 30f, 55f, 85f };
@@ -133,6 +138,9 @@ namespace BattleFortress
             // ---------- Boss 时间表 ----------
             public const float BossFirstTime = 90f;     // 第一只 Boss 出场秒数
             public const float BossInterval = 70f;      // 上一只 Boss 死亡后，隔多少秒再来一只
+            public const float BossBatchGap = 12f;      // 同批次补多只 Boss 时的出场间隔（秒）
+            public const float BossCountStep = 120f;    // 首 Boss 后每存活 N 秒，同屏 Boss 数量 +1（后期难度来源）
+            public const int BossCountMax = 3;          // 同屏 Boss 数量上限
             public const float BossGrowEvery = 75f;     // Boss 每存活到 N 秒变强一档
             public const float BossGrow = 1.3f;         // Boss 每档血量倍率
             public const int BossCoin = 40;             // 击杀 Boss 额外金币
@@ -195,6 +203,14 @@ namespace BattleFortress
         public static float BossHpMulAt(float t)
         {
             return Mathf.Pow(Survival.BossGrow, Mathf.Floor(t / Survival.BossGrowEvery));
+        }
+
+        /// <summary>t 时刻允许同屏存在的 Boss 数量：首 Boss 1 只，之后每 BossCountStep 秒 +1，封顶</summary>
+        public static int BossCountAt(float t)
+        {
+            if (t < Survival.BossFirstTime) return 0;
+            int n = 1 + Mathf.FloorToInt((t - Survival.BossFirstTime) / Survival.BossCountStep);
+            return Mathf.Clamp(n, 1, Survival.BossCountMax);
         }
     }
 }

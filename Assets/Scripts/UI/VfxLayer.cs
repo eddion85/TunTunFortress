@@ -327,9 +327,8 @@ namespace BattleFortress
                 var e = Registry.Enemies[i];
                 if (e == null || e.Dead || !e.gameObject.activeInHierarchy) continue;
 
+                // 所有敌人都显示血条（含满血小兵），Boss 更宽；fillAmount 每帧实时刷新
                 float ratio = Mathf.Clamp01(e.Hp / Mathf.Max(1f, e.MaxHp));
-                // 减少画面杂乱：满血小兵不挂血条，受到伤害后才显示；Boss 血条常驻
-                if (!e.IsBoss && ratio >= 0.999f) continue;
 
                 var bar = ObtainBar();
                 Vector3 p = e.transform.position;

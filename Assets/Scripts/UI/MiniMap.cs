@@ -62,13 +62,13 @@ namespace BattleFortress
 
         /// <summary>
         /// 世界坐标 → 小地图像素（相对底板左下角）。
-        /// 相机朝 +Z 观察，因此屏幕右方对应世界 -X；小地图必须同样镜像 X，
-        /// 否则地图左右与摇杆/画面相反。
+        /// 相机位于玩家 -Z 侧、俯看 +Z，yaw=0 时屏幕右方对应世界 +X、屏幕上方对应 +Z，
+        /// 因此小地图 X 不镜像（旧实现错误镜像导致左右与实际移动相反）。
         /// </summary>
         private Vector2 ToMap(float x, float z)
         {
             float half = GameConfig.ArenaHalf;
-            float u = (half - x) / (half * 2f);
+            float u = (x + half) / (half * 2f);
             float v = (z + half) / (half * 2f);
             return new Vector2(u * _size, v * _size);
         }
