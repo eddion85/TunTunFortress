@@ -4,15 +4,15 @@ using UnityEngine;
 namespace BattleFortress
 {
     /// <summary>
-    /// 自动武器 [策划书 4.1]：
-    /// - 侧方排炮：左右各一门，各自独立选敌、独立冷却，从自身炮口射出
-    /// - 正面直射炮：一阶进化后解锁，从车头炮口沿朝向直射，伤害更高
-    /// 伤害计算含体积压制系数 [策划书 4.1]
-    /// 对应 LayaAir 版 components/AutoWeapon.ts。
+    /// 自动武器：按「武器挂点 Mount」驱动，每个挂点持有一份 WeaponDef（数值/选敌形状/结算方式）。
+    /// - 侧方排炮：左右各一门，直射最近单体（ImpactType.Direct）
+    /// - 正面直射炮：商店加装后启用，炮弹飞到落点地面范围爆炸（ImpactType.Area）
+    /// 扩展新装备攻击：WeaponDef 加工厂 → BuildMounts 挂炮口 → 如需新结算方式在 DamageKit 加方法，
+    /// 本类的选敌/开火/弹体推进框架不用动。
     /// </summary>
     public class AutoWeapon : MonoBehaviour
     {
-        [Header("炮弹")]
+        [Header("炮弹模板（对象池）")]
         [SerializeField] private GameObject shellTpl;
 
         [Header("炮口")]
@@ -23,16 +23,24 @@ namespace BattleFortress
         [Header("主相机：只对屏幕内可见敌人开火")]
         [SerializeField] private Camera cam;
 
-        private float _cdL = 0.6f;
-        private float _cdR = 1.2f;
-        private float _cdF = 1.6f;
-        private int _sideSeq;   // 侧炮发炮序号（轮流点名 Boss）
-        private int _frontSeq;  // 正面炮发炮序号
+        /// <summary>一个武器挂点：定义 + 炮口 + 运行时冷却/发炮序号</summary>
+        private class Mount
+        {
+            public WeaponDef Def;
+            public Transform Muzzle;
+            public float Cd;
+            public int Seq;
+            // 该挂点是否需要装备解锁（正面炮要商店加装）
+            public bool RequireFrontCannon;
+        }
+
+        private readonly List<Mount> _mounts = new List<Mount>();
         private readonly List<Shell> _shots = new List<Shell>();
 
         private void OnEnable()
         {
             GameBus.On(GameEvents.Restart, ClearShots);
+            BuildMounts();
         }
 
         private void OnDisable()
@@ -45,16 +53,25 @@ namespace BattleFortress
             if (cam == null) cam = Camera.main;
         }
 
+        /// <summary>组装全部武器挂点（新装备在这里加一行即可）</summary>
+        private void BuildMounts()
+        {
+            _mounts.Clear();
+            _mounts.Add(new Mount { Def = WeaponDef.SideCannon(-1), Muzzle = muzzleL, Cd = 0.6f });
+            _mounts.Add(new Mount { Def = WeaponDef.SideCannon(1),  Muzzle = muzzleR, Cd = 1.2f });
+            _mounts.Add(new Mount { Def = WeaponDef.FrontCannon(),  Muzzle = muzzleF, Cd = 1.6f, RequireFrontCannon = true });
+        }
+
         private void ClearShots(object payload)
         {
             for (int i = 0; i < _shots.Count; i++)
                 if (_shots[i] != null) ObjectPool.Despawn(_shots[i].gameObject);
             _shots.Clear();
-            _cdL = 0.6f;
-            _cdR = 1.2f;
-            _cdF = 1.6f;
-            _sideSeq = 0;
-            _frontSeq = 0;
+            for (int i = 0; i < _mounts.Count; i++)
+            {
+                _mounts[i].Seq = 0;
+                _mounts[i].Cd = i == 0 ? 0.6f : (i == 1 ? 1.2f : 1.6f);
+            }
         }
 
         /// <summary>取炮口世界坐标，未接线时回退到堡垒中心上方</summary>
@@ -64,14 +81,17 @@ namespace BattleFortress
             return new Vector3(pos.x, pos.y + 1.1f, pos.z);
         }
 
+        // ---------------- 选敌 ----------------
+
         /// <summary>
         /// 选敌。
         /// </summary>
         /// <param name="pos">堡垒位置</param>
         /// <param name="side">-1 = 只挑左半边、1 = 只挑右半边、0 = 不限</param>
-        /// <param name="cone">&gt;0 时只挑正前方锥形内的目标（正面炮用）</param>
+        /// <param name="cone">&gt;0 时只挑正前方锥形内的目标</param>
+        /// <param name="blindFront">&gt;0 时回避正前方盲区（cos 半角阈值），把正面目标让给正面炮</param>
         /// <param name="bossOnly">只挑 Boss（Boss 体积大，不受左右半场限制，避免被近身小兵永久「抢火」）</param>
-        private EnemyUnit Nearest(Vector3 pos, int side, float cone, bool bossOnly = false)
+        private EnemyUnit Nearest(Vector3 pos, int side, float cone, float blindFront = 0f, bool bossOnly = false)
         {
             float fx = 0f, fz = 1f, rx = 1f, rz = 0f;
             if (side != 0 || cone > 0f)
@@ -104,8 +124,13 @@ namespace BattleFortress
                 // 点名 Boss 时不看左右半场（Boss 是大型目标，两侧炮都该能打）
                 if (!bossOnly && side != 0)
                 {
-                    // 投影到右向量，判断敌人在左半边还是右半边
                     if ((dx * rx + dz * rz) * side < 0f) continue;
+                }
+                // 侧炮正面盲区：与车头夹角小于盲区半角的目标不打，统一留给正面直射炮
+                if (blindFront > 0f)
+                {
+                    float db = Mathf.Sqrt(d);
+                    if (db > 0.001f && (dx * fx + dz * fz) / db >= blindFront) continue;
                 }
                 if (cone > 0f)
                 {
@@ -120,52 +145,56 @@ namespace BattleFortress
             return best;
         }
 
-        /// <summary>
-        /// 侧炮选敌：正常选最近敌人；但每 BossTargetEvery 发强制点名射程内最近的 Boss，
-        /// 避免 Boss 被一圈近身小兵挡住火力、血条完全不掉。
-        /// </summary>
-        private EnemyUnit PickSideTarget(Vector3 pos, int side)
+        /// <summary>按挂点定义选敌：支持左右半场 / 正前锥形，以及隔发点名 Boss</summary>
+        private EnemyUnit PickTarget(Mount m, Vector3 pos)
         {
-            var normal = Nearest(pos, side, 0f);
+            var d = m.Def;
+            m.Seq++;
+            // 正面盲区只在已加装正面炮后生效；没加装时侧炮保持 360° 覆盖，避免正前方火力真空
+            float blind = d.BlindFront > 0f && GS.HasFrontCannon ? d.BlindFront : 0f;
+            EnemyUnit normal = Nearest(pos, d.Side, d.Cone, blind);
+
+            if (!d.BossFocus) return normal;
             int every = Mathf.Max(1, GameConfig.Survival.BossTargetEvery);
-            _sideSeq++;
-            if (_sideSeq % every != 0) return normal;
-            var boss = Nearest(pos, side, 0f, true);
+            if (m.Seq % every != 0) return normal;
+
+            var boss = Nearest(pos, d.Side, d.Cone, blind, true);
             return boss != null ? boss : normal;
         }
 
-        /// <summary>
-        /// 敌人是否落在屏幕可见范围内。
-        /// 留 15% 边距，边缘敌人不会被生硬地选不中。
-        /// </summary>
+        /// <summary>敌人是否落在屏幕可见范围内（留 15% 边距）</summary>
         private bool IsOnScreen(Vector3 p)
         {
-            if (cam == null) return true;   // 未接线时退回原逻辑，不锁死武器
+            if (cam == null) return true;
             Vector3 vp = cam.WorldToScreenPoint(new Vector3(p.x, 1.2f, p.z));
-            if (vp.z <= 0f) return false;   // 相机背后
+            if (vp.z <= 0f) return false;
             float mx = Screen.width * 0.15f;
             float my = Screen.height * 0.15f;
             return vp.x > -mx && vp.x < Screen.width + mx && vp.y > -my && vp.y < Screen.height + my;
         }
 
-        /// <summary>开火。kind: 0=左侧炮 1=右侧炮 2=正面炮</summary>
-        private void Fire(Vector3 from, EnemyUnit target, float dmg, int kind)
+        // ---------------- 开火 ----------------
+
+        private void Fire(Mount m, EnemyUnit target)
         {
-            bool front = kind == 2;
-            AudioKit.PlaySfx(SfxKeys.Cannon);
-            Fx.PlayVfx(VfxKeys.FireBall, from.x, from.y, from.z, front ? 1.6f : 1.15f);
-            Fx.Shake(front ? 0.3f : 0.14f);
+            var d = m.Def;
+            Vector3 from = Muzzle(m.Muzzle, transform.position);
+
+            AudioKit.PlaySfx(d.FireSfx);
+            Fx.PlayVfx(VfxKeys.FireBall, from.x, from.y, from.z, d.MuzzleFxScale);
+            Fx.Shake(d.FireShake);
 
             if (shellTpl == null) return;
             var shell = ObjectPool.Spawn(shellTpl, from, Quaternion.identity, transform.parent);
-            float sc = front ? 0.95f : 0.7f;
-            shell.transform.localScale = new Vector3(sc, sc, sc);
+            shell.transform.localScale = new Vector3(d.ShellScale, d.ShellScale, d.ShellScale);
 
             var sh = shell.GetComponent<Shell>();
             if (sh == null) sh = shell.AddComponent<Shell>();
-            sh.Init(target, dmg, front);
+            sh.Init(d, target, d.Damage * GS.DmgMul);
             _shots.Add(sh);
         }
+
+        // ---------------- 主循环 ----------------
 
         private void Update()
         {
@@ -174,100 +203,104 @@ namespace BattleFortress
             if (!GS.Over && !GS.Paused)
             {
                 Vector3 pos = transform.position;
-                float sideCd = GameConfig.SideCd * GS.CdMul;
-
-                // 左侧炮：只打左半边目标
-                _cdL -= dt;
-                if (_cdL <= 0f)
+                for (int i = 0; i < _mounts.Count; i++)
                 {
-                    var t = PickSideTarget(pos, -1);
+                    var m = _mounts[i];
+                    // 需要装备解锁的挂点（正面炮）：没加装不转冷却也不开火
+                    if (m.RequireFrontCannon && !GS.HasFrontCannon) continue;
+
+                    m.Cd -= dt;
+                    if (m.Cd > 0f) continue;
+
+                    var t = PickTarget(m, pos);
                     if (t != null)
                     {
-                        _cdL = sideCd;
-                        Fire(Muzzle(muzzleL, pos), t, GameConfig.SideDmg * GS.DmgMul, 0);
+                        m.Cd = m.Def.Cooldown * GS.CdMul;
+                        Fire(m, t);
                     }
-                    else _cdL = 0.25f;
-                }
-
-                // 右侧炮：只打右半边目标，与左炮交替开火（初始 CD 错开）
-                _cdR -= dt;
-                if (_cdR <= 0f)
-                {
-                    var t = PickSideTarget(pos, 1);
-                    if (t != null)
-                    {
-                        _cdR = sideCd;
-                        Fire(Muzzle(muzzleR, pos), t, GameConfig.SideDmg * GS.DmgMul, 1);
-                    }
-                    else _cdR = 0.25f;
-                }
-
-                // 正面直射炮：商店主动加装后解锁（GS.HasFrontCannon），只打正前方锥形内目标
-                if (GS.HasFrontCannon)
-                {
-                    _cdF -= dt;
-                    if (_cdF <= 0f)
-                    {
-                        // 正面炮同样隔发点名锥形内 Boss，避免被小兵挡火
-                        _frontSeq++;
-                        var t = (_frontSeq % Mathf.Max(1, GameConfig.Survival.BossTargetEvery) == 0)
-                            ? (Nearest(pos, 0, 0.35f, true) ?? Nearest(pos, 0, 0.35f))
-                            : Nearest(pos, 0, 0.35f);
-                        if (t != null)
-                        {
-                            _cdF = GameConfig.FrontCd * GS.CdMul;
-                            Fire(Muzzle(muzzleF, pos), t, GameConfig.FrontDmg * GS.DmgMul, 2);
-                        }
-                        else _cdF = 0.25f;
-                    }
+                    else m.Cd = 0.25f; // 没目标时短间隔重试，不浪费一整轮冷却
                 }
             }
 
-            // 炮弹飞行
+            StepShells(dt);
+        }
+
+        /// <summary>推进所有在飞炮弹：Direct 追单体，Area 追地面落点并在到达/到期时爆炸</summary>
+        private void StepShells(float dt)
+        {
+            float arrive = GameConfig.ShellArriveDist;
+
             for (int i = _shots.Count - 1; i >= 0; i--)
             {
                 var s = _shots[i];
                 if (s == null) { _shots.RemoveAt(i); continue; }
 
+                var d = s.Def;
                 s.Life -= dt;
-                bool hasTarget = s.Target != null && !s.Target.Dead && s.Target.gameObject.activeInHierarchy;
+
+                bool alive = s.TargetAlive;
+                // 弹体始终追着当前目标的地面位置；Area 弹在目标死亡后保留最后落点继续飞
+                if (alive) s.Aim = Shell.GroundPoint(s.Target.transform.position);
+
                 Vector3 sp = s.transform.position;
-
-                if (!hasTarget || s.Life <= 0f)
-                {
-                    ObjectPool.Despawn(s.gameObject);
-                    _shots.RemoveAt(i);
-                    continue;
-                }
-
-                Vector3 tp = s.Target.transform.position;
-                float dx = tp.x - sp.x;
-                float dz = tp.z - sp.z;
+                float dx = s.Aim.x - sp.x;
+                float dz = s.Aim.z - sp.z;
                 float dl = Mathf.Sqrt(dx * dx + dz * dz);
+                bool reached = dl <= arrive;
+                bool expired = s.Life <= 0f;
 
-                if (dl < 0.9f)
+                if (d.Impact == ImpactType.Direct)
                 {
-                    if (!s.Target.Dead)
+                    // 直射弹：目标没了/寿命到 → 直接消失；贴到目标 → 单体结算
+                    if (!alive || expired)
                     {
-                        // 体积压制系数 [策划书 4.1]
-                        float dmg = s.Dmg * GS.SizeFactor(s.Target.Size());
-                        s.Target.Hp -= dmg;
-                        Fx.PopDmg(tp, dmg, s.Front);
-                        AudioKit.PlaySfx(SfxKeys.HitEnemy);
-                        Fx.PlayVfx(VfxKeys.HitSheet, tp.x, tp.y + 1f, tp.z, s.Front ? 2.0f : 1.5f);
-                        // 只有正面重炮补一层冲击波，普通命中保持干净
-                        if (s.Front) Fx.PlayVfx(VfxKeys.RingWave, tp.x, tp.y + 0.6f, tp.z, 1.5f);
-                        Fx.Shake(s.Front ? 0.45f : 0.2f);
+                        ObjectPool.Despawn(s.gameObject);
+                        _shots.RemoveAt(i);
+                        continue;
                     }
-                    ObjectPool.Despawn(s.gameObject);
-                    _shots.RemoveAt(i);
-                    continue;
+                    if (reached)
+                    {
+                        var tp = s.Target.transform.position;
+                        DamageKit.DirectHit(s.Target, s.Dmg, tp, d.BigDamageNumber,
+                            d.ImpactFxScale, d.RingFxScale, d.ImpactShake);
+                        ObjectPool.Despawn(s.gameObject);
+                        _shots.RemoveAt(i);
+                        continue;
+                    }
+                }
+                else // ImpactType.Area：飞到落点地面爆炸；目标中途死了也照样炸最后落点
+                {
+                    if (reached || expired)
+                    {
+                        Vector3 impact = reached ? Shell.GroundPoint(s.Aim) : Shell.GroundPoint(sp);
+                        DamageKit.Explode(impact, d.ImpactRadius, s.Dmg, d.BigDamageNumber,
+                            d.ImpactFxScale, d.RingFxScale, d.ImpactShake, d.ImpactSfx);
+                        ObjectPool.Despawn(s.gameObject);
+                        _shots.RemoveAt(i);
+                        continue;
+                    }
                 }
 
-                float step = (s.Front ? 26f : 20f) * dt;
+                // 朝落点直线飞行；高度按剩余距离比例下压，落地时 y=0
+                float step = d.ShellSpeed * dt;
+                if (dl < 0.0001f) dl = 1f;
                 sp.x += (dx / dl) * step;
                 sp.z += (dz / dl) * step;
+                float heightRatio = Mathf.Clamp01(dl / s.StartDist);
+                sp.y = heightRatio * s.StartY;
                 s.transform.position = sp;
+
+                // 飞行火焰拖尾：沿弹道持续留火团，让正面炮轨迹清晰可见
+                if (d.FlightTrail && d.TrailInterval > 0f)
+                {
+                    s.TrailT -= dt;
+                    if (s.TrailT <= 0f)
+                    {
+                        s.TrailT = d.TrailInterval;
+                        // trail:true 走独立拖尾对象池，不挤占受击/爆炸等战斗特效名额
+                        Fx.PlayVfx(VfxKeys.FireBall, sp, d.TrailFxScale, -1f, -1f, -1f, -1f, true);
+                    }
+                }
             }
         }
     }

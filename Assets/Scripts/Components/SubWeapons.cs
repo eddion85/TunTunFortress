@@ -182,26 +182,14 @@ namespace BattleFortress
                 }
                 if (!boom) continue;
 
-                // 范围爆炸
-                AudioKit.PlaySfx(SfxKeys.ExplosionSmall);
-                Fx.PlayVfx(VfxKeys.ExplosionSheet, mp.x, mp.y + 0.6f, mp.z, 3.0f);
-                Fx.PlayVfx(VfxKeys.RingWave, mp.x, mp.y + 0.2f, mp.z, 2.2f);
-                Fx.Shake(0.8f);
-
-                for (int k = 0; k < Registry.Enemies.Count; k++)
-                {
-                    var e = Registry.Enemies[k];
-                    if (e == null || e.Dead || !e.gameObject.activeInHierarchy) continue;
-                    var ep = e.transform.position;
-                    float dx = ep.x - mp.x;
-                    float dz = ep.z - mp.z;
-                    if (dx * dx + dz * dz < 3.0f * 3.0f)
-                    {
-                        float dmg = GameConfig.FrontDmg * 1.2f * GS.DmgMul * GS.SizeFactor(e.Size());
-                        e.Hp -= dmg;
-                        Fx.PopDmg(ep, dmg, true);
-                    }
-                }
+                // 范围爆炸（统一走 DamageKit：半径 3m、伤害 = 正面炮 ×1.2；特效尺寸按伤害基数换算）
+                float mineFxBase = GameConfig.FrontDmg * 1.2f;
+                DamageKit.Explode(new Vector3(mp.x, 0f, mp.z), 3.0f,
+                    mineFxBase * GS.DmgMul, true,
+                    mineFxBase * GameConfig.ExplosionFxPerDmg,
+                    mineFxBase * GameConfig.RingFxPerDmg,
+                    mineFxBase * GameConfig.ImpactShakePerDmg,
+                    SfxKeys.ExplosionSmall);
 
                 ObjectPool.Despawn(m.node);
                 _mines.RemoveAt(i);

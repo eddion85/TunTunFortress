@@ -73,10 +73,40 @@ namespace BattleFortress
         // ---------------- 武器 ----------------
         public const float SideCd = 1.4f;             // [策划书 3.5s → 压缩保手感]
         public const float SideDmg = 12f;             // [策划书 4.1]
-        public const float FrontCd = 1.0f;            // [策划书 2.5s → 同比压缩]
+        public const float FrontCd = 3.0f;            // [设计] 正面直射炮自动开火间隔：每 3 秒一发
         public const float FrontDmg = 18f;            // [策划书 4.1]
         public const float WeaponRange = 15f;
         public const float DashCd = 6f;               // [策划书 4.1]
+
+        /// <summary>
+        /// [设计] 侧炮正面盲区：半角的 cos 值。落在车头正前方该角度内的敌人侧炮不打，
+        /// 只留给正面直射炮，避免小兵被 360° 侧炮提前清完、正面炮没有目标。
+        /// cos45°≈0.707 = 盲区 ±45°（比正面炮 ±70° 射界窄，45°~70° 为双重火力带，不会有空档）；
+        /// 设为 0 = 侧炮无盲区（回到 360° 覆盖），设为 1 = 正前方一条线外都不打。
+        /// </summary>
+        public const float SideBlindCone = 0.707f;
+
+        // ---------------- 炮弹飞行（[设计] 抽成配置，供所有装备武器复用） ----------------
+        public const float SideShellSpeed = 20f;       // 侧炮弹速（米/秒）
+        public const float FrontShellSpeed = 26f;      // 正面炮弹速
+        public const float ShellLife = 1.6f;           // 炮弹最长存活（秒），到期按当前位置结算
+        public const float ShellArriveDist = 0.9f;     // 距落点多少米判定命中/爆炸
+        public const float SideShellScale = 0.7f;      // 侧炮弹体模型缩放
+        public const float FrontShellScale = 1.5f;     // 正面炮弹体模型缩放（更大更醒目）
+        public const float FrontTrailInterval = 0.05f; // 正面炮飞行拖尾：每多少秒留一团火
+        public const float FrontTrailFxScale = 0.85f;  // 拖尾火团尺寸（收小，避免糊屏）
+
+        // ---------------- 正面直射炮：落地范围爆炸（AoE） ----------------
+        public const float FrontImpactRadius = 3.2f;   // 落地爆炸半径（米），半径内全部敌人受伤
+
+        // 攻击特效尺寸/震屏统一按武器基础伤害换算（威力越大特效越大），整体收小避免炸屏：
+        // 侧炮伤害12、正面炮18、地雷21.6，自然形成「侧炮 &lt; 正面炮 &lt; 地雷」的表现梯度
+        public const float MuzzleFxPerDmg = 0.07f;     // 出膛火光尺寸 = 伤害 × 系数
+        public const float HitFxPerDmg = 0.085f;       // 单体命中火花尺寸
+        public const float ExplosionFxPerDmg = 0.12f;  // 范围爆炸序列帧尺寸
+        public const float RingFxPerDmg = 0.09f;       // 冲击波环尺寸
+        public const float FireShakePerDmg = 0.008f;   // 开火震屏
+        public const float ImpactShakePerDmg = 0.02f;  // 命中/爆炸震屏
 
         // ---------------- 进化 ----------------
         public static readonly int[] EvolveLevels = { 4, 6, 8 };        // [策划书 4.1]
