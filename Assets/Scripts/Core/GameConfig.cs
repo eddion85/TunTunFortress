@@ -65,8 +65,8 @@ namespace BattleFortress
         public const float TrailScale = 0.9f;           // 单团烟基础 UI 尺寸（256px 贴图 × scale × 0.75）
         public const float TrailGrow = 1.8f;            // 存活期间扩散倍率（末态 = 1 + 1.8 倍）
         public const float TrailRise = 5f;              // 屏幕上飘像素（贴地扬尘，数值很小）
-        public const float TrailAlpha = 0.42f;          // 起始透明度，随后线性淡出
-        public const float TrailBack = 0.9f;            // 生成点距车体中心向后的距离（米）
+        public const float TrailAlpha = 1.2f;          // 起始透明度，随后线性淡出
+        public const float TrailBack = 1.2f;            // 生成点距车体中心向后的距离（米）
         public const float TrailJitter = 0.22f;         // 生成点横向随机散布（米）
         public const int TrailMax = 12;                 // 同屏拖尾烟团上限（独立池，不挤占战斗特效）
 
@@ -107,6 +107,129 @@ namespace BattleFortress
         public const float RingFxPerDmg = 0.09f;       // 冲击波环尺寸
         public const float FireShakePerDmg = 0.008f;   // 开火震屏
         public const float ImpactShakePerDmg = 0.02f;  // 命中/爆炸震屏
+
+        // ---------------- 正面炮选敌射界 ----------------
+        public const float FrontCone = 0.35f;       // 正面炮只打车头正前方锥形（cos 阈值，约 ±70°）
+
+        // ---------------- 玩家冲撞 ----------------
+        public const float DashTime = 0.34f;        // 冲撞持续秒数
+        public const float DashSpeedMul = 3.1f;     // 冲撞速度倍率
+        public const float DashFxInterval = 0.13f;  // 冲撞期间速度线特效间隔
+        public const float DashHitRadius = 2.4f;    // 冲撞碾压半径（米）
+        public const float DashDmgMul = 1.5f;       // 冲撞伤害 = 侧炮伤害 × 该倍率
+        public const float EvolveFxInterval = 0.18f;// 进化金光期间持续特效间隔
+
+        // ---------------- 敌人 AI / 刷怪 / 击杀表现（原 EnemySpawner 内字面量集中配置） ----------------
+        public static class Ai
+        {
+            // 出生落位：玩家外圈环形带
+            public const float SpawnRingMin = 15f;      // 普通兵出生最小距离（米）
+            public const float SpawnRingJitter = 8f;    // 额外随机距离
+            public const float BossSpawnRing = 18f;     // Boss 出生距离
+            public const float BossPhase2Mul = 1.4f;    // Boss 血量过半后移速倍率
+            public const float BossDieAnimTime = 1.6f;  // Boss 死亡动画时长
+            public const float BossHitAnimTime = 0.4f;  // Boss 受击动画时长
+            public const float BossAttackAnimTime = 0.7f;
+
+            // 弓箭手：保持射程带、远程射箭
+            public const float ArcherKeepMin = 8f;      // 小于该距离后退
+            public const float ArcherKeepMax = 11f;     // 大于该距离前进
+            public const float ArcherShootRange = 14f;  // 开火最大距离
+            public const float ArcherShootCd = 2.2f;    // 射击间隔
+            public const float ArrowSpeed = 14f;        // 箭飞行速度
+            public const float ArrowLife = 2.5f;        // 箭最长存活
+            public const float ArrowHitRadius = 1.2f;   // 箭命中玩家半径
+
+            // 骑兵绕侧
+            public const float FlankBreakDist = 6f;     // 小于该距离改为直冲
+            public const float FlankBlendDist = 14f;    // 绕侧分量随距离拉满的距离
+            public const float FlankForward = 0.75f;    // 前冲分量占比
+
+            // 羊：近逃远追中游荡
+            public const float WanderFleeDist = 4f;
+            public const float WanderGatherDist = 9f;
+            public const float FleeSpeedMul = 1.1f;
+            public const float GatherSpeedMul = 0.85f;
+            public const float WanderSpeedMul = 0.6f;
+            public const float WanderIntervalMin = 1.2f;
+            public const float WanderIntervalRand = 1.5f;
+
+            // 近身攻击
+            public const float MeleeHitRadius = 1.9f;       // 普通兵贴身伤害半径
+            public const float MeleeHitRadiusBoss = 3.2f;  // Boss 贴身伤害半径
+            public const float MeleeHitCd = 1f;            // 贴身伤害间隔
+
+            // 强化吞噬真空吸附
+            public const float DevourPullRadiusMul = 2.4f; // 吸附半径 = 吞噬圈 × 该值
+            public const float DevourPullFar = 9f;         // 外圈吸附强度
+            public const float DevourPullNear = 3f;        // 贴脸额外吸附
+            public const float DevourDotEdge = 0.15f;      // 外圈边缘伤害比例
+            public const float DevourDotPow = 1.3f;        // 外圈伤害衰减曲线幂
+
+            // 击杀/受击表现尺寸与震屏
+            public const float MobDeathFx = 1.8f;
+            public const float BossDeathFx = 5f;
+            public const float BossDeathRingFx = 5f;
+            public const float BossDeathSparkFx = 3f;
+            public const float MobDeathShake = 0.22f;
+            public const float BossDeathShake = 1.8f;
+            public const float BossSlamRingFx = 4.5f;
+            public const float BossSlamExplosionFx = 4f;
+            public const float BossSlamShake = 1.4f;
+            public const float ArrowHitFx = 1.6f;
+            public const float ArrowHitShake = 0.4f;
+            public const float MeleeHitFx = 1.8f;
+            public const float MeleeHitShake = 0.45f;
+            public const float BossAppearRingFx = 7f;
+            public const float BossAppearBeamFx = 5.5f;
+            public const float BossAppearShake = 2.4f;
+        }
+
+        // ---------------- 副武器：连枷（SubWeapons） ----------------
+        public static class Flail
+        {
+            public const int Count = 2;             // 连枷数量
+            public const float RotateSpeed = 3.4f;  // 环绕角速度（弧度/秒）
+            public const float Radius = 2.6f;       // 环绕半径（米）
+            public const float Height = 0.8f;       // 离地高度
+            public const float HitRadius = 1.1f;    // 碰到敌人的判定半径
+            public const float DmgMul = 0.85f;      // 单次伤害 = 侧炮伤害 × 该值
+            public const float HitCd = 0.35f;       // 同一连枷两次命中间隔
+            public const float Scale = 1.5f;        // 模型缩放
+        }
+
+        // ---------------- 副武器：地雷舱（SubWeapons） ----------------
+        public static class Mine
+        {
+            public const int Max = 10;              // 同屏地雷上限
+            public const float Life = 14f;          // 地雷存活秒数
+            public const float Arm = 0.6f;          // 布雷后武装延迟
+            public const float StepDist = 2.2f;     // 每移动多少米可布一颗
+            public const float Cd = 1.6f;           // 布雷间隔
+            public const float TriggerRadius = 1.4f;// 敌人靠近引爆半径
+            public const float Scale = 1.1f;        // 模型缩放
+            public const float ExplosionRadius = 3f;// 爆炸半径
+            public const float DmgMul = 1.2f;       // 爆炸伤害 = 正面炮 × 该值
+        }
+
+        // ---------------- 掉落物（DropSystem / DropItem） ----------------
+        public static class Drop
+        {
+            public const float HealthP = 0.08f;     // 小血包概率
+            public const float MagnetP = 0.12f;     // 磁铁累计概率阈值
+            public const float CoinP = 0.55f;       // 金币累计概率阈值（之后为空手）
+            public const float MagnetSpeed = 12f;   // 磁吸飞行速度
+            public const float PickRadiusBonus = 1.6f; // 拾取半径 = 吞噬圈 + 该值
+            public const float BobAmp = 0.25f;      // 上下浮动幅度
+            public const float BobSpeed = 3f;       // 上下浮动速度
+            public const float Spin = 2.4f;         // 自转速度
+            public const float CoinExp = 4f;        // 拾取金币附带经验
+            public const float ScaleSmall = 1.25f;  // 普通掉落缩放
+            public const float ScaleBig = 1.4f;     // Boss 掉落缩放
+            public const float Life = 18f;          // 掉落物存活秒数
+            public const float SpawnY = 0.7f;       // 出生高度
+            public const float FloatY = 0.85f;      // 浮动中心高度
+        }
 
         // ---------------- 进化 ----------------
         public static readonly int[] EvolveLevels = { 4, 6, 8 };        // [策划书 4.1]

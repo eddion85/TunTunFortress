@@ -7,6 +7,7 @@ namespace BattleFortress
     /// 副武器系统：连枷（环绕近身碾压）+ 地雷舱（行进布雷）。
     /// 两者均由升级卡解锁，与主炮（AutoWeapon）并行运作。
     /// 对应 LayaAir 版 components/SubWeapons.ts。
+    /// 调参集中在 GameConfig.Flail / GameConfig.Mine，新增副武器按同样方式扩展。
     /// </summary>
     public class SubWeapons : MonoBehaviour
     {
@@ -25,13 +26,11 @@ namespace BattleFortress
         private float _mineCd;
         private Vector3 _lastPos;
 
-        private const float MaxMines = 10;
-
         private class Mine
         {
             public GameObject node;
-            public float life = 14f;
-            public float arm = 0.6f;
+            public float life = GameConfig.Mine.Life;
+            public float arm = GameConfig.Mine.Arm;
         }
 
         private void OnEnable()
@@ -73,11 +72,11 @@ namespace BattleFortress
         private void SpawnFlails()
         {
             if (flailTpl == null) return;
-            for (int i = 0; i < 2; i++)
+            for (int i = 0; i < GameConfig.Flail.Count; i++)
             {
-                var f = ObjectPool.Spawn(flailTpl, transform.position, Quaternion.identity, transform.parent);
-                f.transform.localScale = new Vector3(1.5f, 1.5f, 1.5f);
-                _flails.Add(f);
+                var go = ObjectPool.Spawn(flailTpl, transform.position, Quaternion.identity, transform.parent);
+                go.transform.localScale = Vector3.one * GameConfig.Flail.Scale;
+                _flails.Add(go);
                 _hitCd.Add(0f);
             }
         }
@@ -92,84 +91,96 @@ namespace BattleFortress
             if (mineBayVis != null && mineBayVis.activeSelf != GS.HasMine) mineBayVis.SetActive(GS.HasMine);
             if (magnetVis != null && magnetVis.activeSelf != GS.HasMagnet) magnetVis.SetActive(GS.HasMagnet);
 
-            // ---- 连枷：绕堡垒旋转，碰到敌人造成伤害 ----
-            if (GS.HasFlail)
+            TickFlail(dt, pos);
+            LayMine(dt, pos);
+            TickMines(dt);
+        }
+
+        // ---------------- 连枷 ----------------
+        /// <summary>连枷：绕堡垒旋转，碰到敌人造成伤害（仅 GS.HasFlail 解锁后运作）</summary>
+        private void TickFlail(float dt, Vector3 pos)
+        {
+            if (!GS.HasFlail) return;
+
+            if (_flails.Count == 0) SpawnFlails();
+            _ang += dt * GameConfig.Flail.RotateSpeed;
+
+            for (int i = 0; i < _flails.Count; i++)
             {
-                if (_flails.Count == 0) SpawnFlails();
-                _ang += dt * 3.4f;
-                const float R = 2.6f;
+                var ball = _flails[i];
+                if (ball == null) continue;
 
-                for (int i = 0; i < _flails.Count; i++)
+                float a = _ang + (i * Mathf.PI * 2f) / _flails.Count;
+                float fx = pos.x + Mathf.Cos(a) * GameConfig.Flail.Radius;
+                float fz = pos.z + Mathf.Sin(a) * GameConfig.Flail.Radius;
+                ball.transform.position = new Vector3(fx, pos.y + GameConfig.Flail.Height, fz);
+                ball.transform.localRotation = Quaternion.Euler(0f, -a * Mathf.Rad2Deg, 0f);
+
+                _hitCd[i] -= dt;
+                if (_hitCd[i] > 0f) continue;
+
+                for (int k = 0; k < Registry.Enemies.Count; k++)
                 {
-                    var f = _flails[i];
-                    if (f == null) continue;
-
-                    float a = _ang + (i * Mathf.PI * 2f) / _flails.Count;
-                    float fx = pos.x + Mathf.Cos(a) * R;
-                    float fz = pos.z + Mathf.Sin(a) * R;
-                    f.transform.position = new Vector3(fx, pos.y + 0.8f, fz);
-                    f.transform.localRotation = Quaternion.Euler(0f, -a * Mathf.Rad2Deg, 0f);
-
-                    _hitCd[i] -= dt;
-                    if (_hitCd[i] > 0f) continue;
-
-                    for (int k = 0; k < Registry.Enemies.Count; k++)
+                    var e = Registry.Enemies[k];
+                    if (e == null || e.Dead || !e.gameObject.activeInHierarchy) continue;
+                    var ep = e.transform.position;
+                    float dx = ep.x - fx;
+                    float dz = ep.z - fz;
+                    if (dx * dx + dz * dz < GameConfig.Flail.HitRadius * GameConfig.Flail.HitRadius)
                     {
-                        var e = Registry.Enemies[k];
-                        if (e == null || e.Dead || !e.gameObject.activeInHierarchy) continue;
-                        var ep = e.transform.position;
-                        float dx = ep.x - fx;
-                        float dz = ep.z - fz;
-                        if (dx * dx + dz * dz < 1.1f * 1.1f)
-                        {
-                            float dmg = GameConfig.SideDmg * 0.85f * GS.DmgMul * GS.SizeFactor(e.Size());
-                            e.Hp -= dmg;
-                            Fx.PopDmg(ep, dmg, false);
-                            AudioKit.PlaySfx(SfxKeys.HitEnemy);
-                            Fx.PlayVfx(VfxKeys.HitSheet, ep.x, ep.y + 0.9f, ep.z, 1.5f);
-                            Fx.Shake(0.18f);
-                            _hitCd[i] = 0.35f;
-                            break;
-                        }
+                        float dmg = GameConfig.SideDmg * GameConfig.Flail.DmgMul * GS.DmgMul * GS.SizeFactor(e.Size());
+                        e.Hp -= dmg;
+                        Fx.PopDmg(ep, dmg, false);
+                        AudioKit.PlaySfx(SfxKeys.HitEnemy);
+                        Fx.PlayVfx(VfxKeys.HitSheet, ep.x, ep.y + 0.9f, ep.z, 1.5f);
+                        Fx.Shake(0.18f);
+                        _hitCd[i] = GameConfig.Flail.HitCd;
+                        break;
                     }
                 }
             }
+        }
 
-            // ---- 地雷舱：移动一段距离后布雷，敌人靠近引爆 ----
-            if (GS.HasMine)
+        // ---------------- 地雷舱 ----------------
+        /// <summary>行进布雷：移动超过配置步长且冷却好就放一颗（仅 GS.HasMine 解锁后运作）</summary>
+        private void LayMine(float dt, Vector3 pos)
+        {
+            if (!GS.HasMine) return;
+
+            _mineCd -= dt;
+            float dx = pos.x - _lastPos.x;
+            float dz = pos.z - _lastPos.z;
+            float moved = Mathf.Sqrt(dx * dx + dz * dz);
+
+            if (_mineCd <= 0f && moved > GameConfig.Mine.StepDist && mineTpl != null && _mines.Count < GameConfig.Mine.Max)
             {
-                _mineCd -= dt;
-                float dx = pos.x - _lastPos.x;
-                float dz = pos.z - _lastPos.z;
-                float moved = Mathf.Sqrt(dx * dx + dz * dz);
-
-                if (_mineCd <= 0f && moved > 2.2f && mineTpl != null && _mines.Count < MaxMines)
-                {
-                    var m = ObjectPool.Spawn(mineTpl, new Vector3(pos.x, 0.15f, pos.z), Quaternion.identity, transform.parent);
-                    m.transform.localScale = new Vector3(1.1f, 1.1f, 1.1f);
-                    _mines.Add(new Mine { node = m });
-                    _mineCd = 1.6f;
-                    _lastPos = pos;
-                }
+                var go = ObjectPool.Spawn(mineTpl, new Vector3(pos.x, 0.15f, pos.z), Quaternion.identity, transform.parent);
+                go.transform.localScale = Vector3.one * GameConfig.Mine.Scale;
+                _mines.Add(new Mine { node = go });
+                _mineCd = GameConfig.Mine.Cd;
+                _lastPos = pos;
             }
+        }
 
-            // 地雷引爆检测
+        /// <summary>地雷引爆检测：武装后敌人靠近即范围爆炸</summary>
+        private void TickMines(float dt)
+        {
             for (int i = _mines.Count - 1; i >= 0; i--)
             {
-                var m = _mines[i];
-                if (m == null || m.node == null) { _mines.RemoveAt(i); continue; }
+                var mine = _mines[i];
+                if (mine == null || mine.node == null) { _mines.RemoveAt(i); continue; }
 
-                m.life -= dt;
-                m.arm -= dt;
-                if (m.life <= 0f)
+                mine.life -= dt;
+                mine.arm -= dt;
+                if (mine.life <= 0f)
                 {
-                    ObjectPool.Despawn(m.node);
+                    ObjectPool.Despawn(mine.node);
                     _mines.RemoveAt(i);
                     continue;
                 }
-                if (m.arm > 0f) continue;
+                if (mine.arm > 0f) continue;
 
-                Vector3 mp = m.node.transform.position;
+                Vector3 mp = mine.node.transform.position;
                 bool boom = false;
                 for (int k = 0; k < Registry.Enemies.Count; k++)
                 {
@@ -178,20 +189,20 @@ namespace BattleFortress
                     var ep = e.transform.position;
                     float dx = ep.x - mp.x;
                     float dz = ep.z - mp.z;
-                    if (dx * dx + dz * dz < 1.4f * 1.4f) { boom = true; break; }
+                    if (dx * dx + dz * dz < GameConfig.Mine.TriggerRadius * GameConfig.Mine.TriggerRadius) { boom = true; break; }
                 }
                 if (!boom) continue;
 
-                // 范围爆炸（统一走 DamageKit：半径 3m、伤害 = 正面炮 ×1.2；特效尺寸按伤害基数换算）
-                float mineFxBase = GameConfig.FrontDmg * 1.2f;
-                DamageKit.Explode(new Vector3(mp.x, 0f, mp.z), 3.0f,
+                // 范围爆炸（统一走 DamageKit：半径/伤害倍率配置驱动；特效尺寸按伤害基数换算）
+                float mineFxBase = GameConfig.FrontDmg * GameConfig.Mine.DmgMul;
+                DamageKit.Explode(new Vector3(mp.x, 0f, mp.z), GameConfig.Mine.ExplosionRadius,
                     mineFxBase * GS.DmgMul, true,
                     mineFxBase * GameConfig.ExplosionFxPerDmg,
                     mineFxBase * GameConfig.RingFxPerDmg,
                     mineFxBase * GameConfig.ImpactShakePerDmg,
                     SfxKeys.ExplosionSmall);
 
-                ObjectPool.Despawn(m.node);
+                ObjectPool.Despawn(mine.node);
                 _mines.RemoveAt(i);
             }
         }

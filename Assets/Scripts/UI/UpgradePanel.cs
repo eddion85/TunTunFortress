@@ -65,10 +65,16 @@ namespace BattleFortress
         };
 
         private readonly List<Card> _picks = new List<Card>();
+        private CanvasGroup _openCg;   // 强化入口按钮的透明组，Start 时缓存，避免每帧查找
 
         private void Start()
         {
             SetPanelVisible(false);
+            if (openBtn != null)
+            {
+                _openCg = openBtn.GetComponent<CanvasGroup>();
+                if (_openCg == null) _openCg = openBtn.gameObject.AddComponent<CanvasGroup>();
+            }
 
             for (int i = 0; i < cards.Length; i++)
             {
@@ -225,11 +231,9 @@ namespace BattleFortress
                 badge.gameObject.SetActive(n > 0);
                 badge.text = n.ToString();
             }
-            if (openBtn != null)
+            if (_openCg != null)
             {
-                var cg = openBtn.GetComponent<CanvasGroup>();
-                if (cg == null) cg = openBtn.gameObject.AddComponent<CanvasGroup>();
-                cg.alpha = n > 0 ? 0.95f + Mathf.Sin(Time.realtimeSinceStartup * 6f) * 0.05f : 0.4f;
+                _openCg.alpha = n > 0 ? 0.95f + Mathf.Sin(Time.realtimeSinceStartup * 6f) * 0.05f : 0.4f;
             }
             if (pointLabel != null)
                 pointLabel.text = n > 0 ? "选择一项强化（还剩 " + n + " 点，可随时收牌）" : "选择一项强化";

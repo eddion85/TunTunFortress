@@ -5,6 +5,7 @@ namespace BattleFortress
     /// <summary>
     /// 掉落物系统：负责金币 / 血包 / 磁铁的生成、浮动自转、磁吸与拾取。
     /// 对应 LayaAir 版 components/DropSystem.ts（从 EnemySpawner 拆出，单一职责）。
+    /// 概率/浮动/磁吸/寿命等调参集中在 GameConfig.Drop；道具数值在 EnemyDefs.Pickups。
     /// </summary>
     public class DropSystem : MonoBehaviour
     {
@@ -46,7 +47,7 @@ namespace BattleFortress
             Registry.Drops.Clear();
         }
 
-        /// <summary>供 EnemySpawner 在敌人死亡时调用</summary>
+        /// <summary>供 EnemySpawner / KillKit 在敌人死亡时调用</summary>
         public static void SpawnDrop(float x, float z, EnemyKind kind, bool isBoss)
         {
             if (_inst != null) _inst.Drop(x, z, kind, isBoss);
@@ -62,24 +63,24 @@ namespace BattleFortress
             {
                 tpl = tplHealth; type = DropItem.TypeHealthBig;
             }
-            else if (roll < 0.08f)
+            else if (roll < GameConfig.Drop.HealthP)
             {
                 tpl = tplHealth; type = DropItem.TypeHealthSmall;
             }
-            else if (roll < 0.12f)
+            else if (roll < GameConfig.Drop.MagnetP)
             {
                 tpl = tplMagnet; type = DropItem.TypeMagnet;
             }
-            else if (roll < 0.55f)
+            else if (roll < GameConfig.Drop.CoinP)
             {
                 tpl = tplCoin; type = DropItem.TypeCoin;
             }
             if (tpl == null) return;
 
-            var go = ObjectPool.Spawn(tpl, new Vector3(x, 0.7f, z), Quaternion.identity, transform);
+            var go = ObjectPool.Spawn(tpl, new Vector3(x, GameConfig.Drop.SpawnY, z), Quaternion.identity, transform);
 
             // 轻微放大让俯视机位下一眼能看见（Prefab 已按真实尺寸归一化，这里只做小幅强调）
-            float dsc = type == DropItem.TypeHealthBig ? 1.4f : 1.25f;
+            float dsc = type == DropItem.TypeHealthBig ? GameConfig.Drop.ScaleBig : GameConfig.Drop.ScaleSmall;
             go.transform.localScale = new Vector3(dsc, dsc, dsc);
 
             var item = go.GetComponent<DropItem>();
@@ -96,7 +97,7 @@ namespace BattleFortress
             float dt = Mathf.Min(Time.deltaTime, GameConfig.MaxDelta);
             Vector3 pp = player.position;
             bool magnet = GS.MagnetTimer > 0f;
-            float pickR = GS.DevourRadius() + 1.6f;
+            float pickR = GS.DevourRadius() + GameConfig.Drop.PickRadiusBonus;
 
             for (int i = Registry.Drops.Count - 1; i >= 0; i--)
             {
@@ -105,9 +106,9 @@ namespace BattleFortress
 
                 d.Life -= dt;
                 Vector3 p = d.transform.position;
-                p.y = 0.85f + Mathf.Sin(GS.Elapsed * 3f + i) * 0.25f;
+                p.y = GameConfig.Drop.FloatY + Mathf.Sin(GS.Elapsed * GameConfig.Drop.BobSpeed + i) * GameConfig.Drop.BobAmp;
 
-                d.Spin += dt * 2.4f;
+                d.Spin += dt * GameConfig.Drop.Spin;
                 d.transform.localRotation = Quaternion.Euler(0f, d.Spin * Mathf.Rad2Deg, 0f);
 
                 float dx = pp.x - p.x;
@@ -118,8 +119,8 @@ namespace BattleFortress
                 // 磁铁生效时吸附 [策划书 8 道具]
                 if (magnet && dist < EnemyDefs.Pickups.MagnetRadius)
                 {
-                    p.x += (dx / dist) * 12f * dt;
-                    p.z += (dz / dist) * 12f * dt;
+                    p.x += (dx / dist) * GameConfig.Drop.MagnetSpeed * dt;
+                    p.z += (dz / dist) * GameConfig.Drop.MagnetSpeed * dt;
                 }
                 d.transform.position = p;
 
@@ -128,7 +129,7 @@ namespace BattleFortress
                     if (d.Type == DropItem.TypeCoin)
                     {
                         GS.Coins += d.Value;
-                        GS.AddExp(4f);
+                        GS.AddExp(GameConfig.Drop.CoinExp);
                         AudioKit.PlaySfx(SfxKeys.Coin);
                         GameBus.Emit(GameEvents.Float, "+" + d.Value + " 金币");
                         Fx.PlayVfx(VfxKeys.StarSpark, p.x, p.y + 0.6f, p.z, 1.3f);

@@ -37,7 +37,6 @@ namespace BattleFortress
         }
 
         private readonly List<FloatTip> _tips = new List<FloatTip>();
-        private static Font _font;
 
         private void OnEnable()
         {
@@ -47,14 +46,6 @@ namespace BattleFortress
         private void OnDisable()
         {
             GameBus.Off(GameEvents.Float, OnFloat);
-        }
-
-        private static Font DefaultFont()
-        {
-            if (_font != null) return _font;
-            _font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
-            if (_font == null) _font = Resources.GetBuiltinResource<Font>("Arial.ttf");
-            return _font;
         }
 
         private void OnFloat(object payload)
@@ -69,7 +60,7 @@ namespace BattleFortress
             go.transform.SetParent(root, false);
             var lb = go.AddComponent<Text>();
             lb.raycastTarget = false;
-            lb.font = DefaultFont();
+            lb.font = UiKit.RuntimeFont();
             lb.text = text;
             lb.fontSize = 34;
             lb.fontStyle = FontStyle.Bold;

@@ -29,6 +29,7 @@ namespace BattleFortress
             public WeaponDef Def;
             public Transform Muzzle;
             public float Cd;
+            public float InitCd;   // 开局/重开时的初始冷却（让多门炮错峰开火）
             public int Seq;
             // 该挂点是否需要装备解锁（正面炮要商店加装）
             public bool RequireFrontCannon;
@@ -57,9 +58,9 @@ namespace BattleFortress
         private void BuildMounts()
         {
             _mounts.Clear();
-            _mounts.Add(new Mount { Def = WeaponDef.SideCannon(-1), Muzzle = muzzleL, Cd = 0.6f });
-            _mounts.Add(new Mount { Def = WeaponDef.SideCannon(1),  Muzzle = muzzleR, Cd = 1.2f });
-            _mounts.Add(new Mount { Def = WeaponDef.FrontCannon(),  Muzzle = muzzleF, Cd = 1.6f, RequireFrontCannon = true });
+            _mounts.Add(new Mount { Def = WeaponDef.SideCannon(-1), Muzzle = muzzleL, Cd = 0.6f, InitCd = 0.6f });
+            _mounts.Add(new Mount { Def = WeaponDef.SideCannon(1),  Muzzle = muzzleR, Cd = 1.2f, InitCd = 1.2f });
+            _mounts.Add(new Mount { Def = WeaponDef.FrontCannon(),  Muzzle = muzzleF, Cd = 1.6f, InitCd = 1.6f, RequireFrontCannon = true });
         }
 
         private void ClearShots(object payload)
@@ -70,7 +71,7 @@ namespace BattleFortress
             for (int i = 0; i < _mounts.Count; i++)
             {
                 _mounts[i].Seq = 0;
-                _mounts[i].Cd = i == 0 ? 0.6f : (i == 1 ? 1.2f : 1.6f);
+                _mounts[i].Cd = _mounts[i].InitCd;
             }
         }
 
@@ -262,7 +263,7 @@ namespace BattleFortress
                     {
                         var tp = s.Target.transform.position;
                         DamageKit.DirectHit(s.Target, s.Dmg, tp, d.BigDamageNumber,
-                            d.ImpactFxScale, d.RingFxScale, d.ImpactShake);
+                            d.ImpactFxScale, d.RingFxScale, d.ImpactShake, d.ImpactSfx);
                         ObjectPool.Despawn(s.gameObject);
                         _shots.RemoveAt(i);
                         continue;

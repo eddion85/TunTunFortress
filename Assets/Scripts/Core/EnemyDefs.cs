@@ -45,18 +45,12 @@ namespace BattleFortress
             return KINDS[0];
         }
 
-        /// <summary>敌种索引，用于 maxTier 解锁判定（顺序同 KINDS）</summary>
+        /// <summary>敌种索引，用于 maxTier 解锁判定（顺序同 KINDS，未找到回退 0）</summary>
         public static int IndexOf(string key)
         {
-            switch (key)
-            {
-                case "sheep": return 0;
-                case "cow": return 1;
-                case "farmer": return 2;
-                case "archer": return 3;
-                case "rider": return 4;
-                default: return 0;
-            }
+            for (int i = 0; i < KINDS.Length; i++)
+                if (KINDS[i].key == key) return i;
+            return 0;
         }
 
         // ---------------- Boss [设计：GDD 无细则，按敌人数值放大] ----------------

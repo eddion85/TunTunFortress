@@ -10,8 +10,8 @@ namespace BattleFortress
     {
         public float Dx;
         public float Dz;
-        public float Speed = 14f;
-        public float Life = 2.5f;
+        public float Speed = GameConfig.Ai.ArrowSpeed;
+        public float Life = GameConfig.Ai.ArrowLife;
         public float Dmg;
 
         public void Init(float dx, float dz, float dmg)
@@ -19,8 +19,8 @@ namespace BattleFortress
             Dx = dx;
             Dz = dz;
             Dmg = dmg;
-            Speed = 14f;
-            Life = 2.5f;
+            Speed = GameConfig.Ai.ArrowSpeed;
+            Life = GameConfig.Ai.ArrowLife;
         }
     }
 }

@@ -49,13 +49,11 @@ namespace BattleFortress
         private bool _marked;
         private bool _joyHidden;
 
-        [Header("点击落点光标（仅引导用）")]
+        [Header("点击落点光标（仅引导用，表现逻辑见 TapMoveMarker）")]
         [SerializeField] private float markerLife = 0.45f;  // 光标存活秒数
         [SerializeField] private float markerSize = 3.0f;   // 光标世界直径（米）
         [SerializeField] private Color markerColor = new Color(1f, 0.86f, 0.32f, 1f); // 暖黄引导色
-        private SpriteRenderer _marker;
-        private float _markerT = -1f;
-        private float _markerBaseScale = 1f;
+        private TapMoveMarker _marker;
 
         [Header("边界提示")]
         [SerializeField] private float edgeTipCooldown = 2.5f; // 同一边界提示最小间隔（秒）
@@ -101,7 +99,7 @@ namespace BattleFortress
                 var joy = GameObject.Find("Joystick");
                 if (joy != null) joy.SetActive(false); // 点地模式下隐藏虚拟摇杆
             }
-            BuildMoveMarker();
+            _marker = TapMoveMarker.Create(transform.parent, markerLife, markerSize, markerColor);
             BuildFrontCannon();
         }
 
@@ -151,60 +149,6 @@ namespace BattleFortress
             }
         }
 
-        /// <summary>运行时创建一个平铺在地面上的落点光标（不写入场景，停止播放即销毁）</summary>
-        private void BuildMoveMarker()
-        {
-            var spr = Resources.Load<Sprite>(VfxKeys.TapMarker);
-            if (spr == null) spr = Resources.Load<Sprite>(VfxKeys.RingWave); // 兜底
-            if (spr == null) return;
-            var go = new GameObject("TapMoveMarker");
-            go.transform.SetParent(transform.parent, false); // 放在世界根下，不跟随战车
-            _marker = go.AddComponent<SpriteRenderer>();
-            _marker.sprite = spr;
-            _marker.color = markerColor;
-            _marker.sortingOrder = 8;
-            go.transform.rotation = Quaternion.Euler(90f, 0f, 0f); // XZ 地面平铺
-            float baseSize = spr.bounds.size.x;
-            _markerBaseScale = baseSize > 0.0001f ? markerSize / baseSize : 1f;
-            go.transform.localScale = Vector3.one * _markerBaseScale;
-            go.SetActive(false);
-        }
-
-        private void ShowMoveMarker(Vector3 p)
-        {
-            if (_marker == null) return;
-            var mt = _marker.transform;
-            mt.position = new Vector3(p.x, 0.12f, p.z);
-            mt.localScale = Vector3.one * _markerBaseScale * 0.6f;
-            _marker.color = markerColor;
-            _marker.gameObject.SetActive(true);
-            _markerT = 0f;
-        }
-
-        private void TickMoveMarker(float dt)
-        {
-            if (_markerT < 0f || _marker == null) return;
-            _markerT += dt;
-            float t = Mathf.Clamp01(_markerT / markerLife);
-            // LoL 式：小圈快速弹出到略大，再整体淡出
-            float s = Mathf.Lerp(0.6f, 1.08f, 1f - (1f - t) * (1f - t));
-            _marker.transform.localScale = Vector3.one * _markerBaseScale * s;
-            var c = markerColor;
-            c.a = 1f - t;
-            _marker.color = c;
-            if (t >= 1f)
-            {
-                _markerT = -1f;
-                _marker.gameObject.SetActive(false);
-            }
-        }
-
-        private void HideMoveMarker()
-        {
-            _markerT = -1f;
-            if (_marker != null) _marker.gameObject.SetActive(false);
-        }
-
         /// <summary>按进化阶段切换堡垒外观：四个形态都在场景里，只做显隐</summary>
         private void ApplyTier(int stage)
         {
@@ -226,7 +170,7 @@ namespace BattleFortress
         {
             if (!SkillReady()) return;
             _cd = GameConfig.DashCd;
-            _dash = 0.34f;
+            _dash = GameConfig.DashTime;
             AudioKit.PlaySfx(SfxKeys.Dash);
             var p = transform.position;
             Fx.PlayVfx(VfxKeys.RingWave, p.x, p.y + 0.3f, p.z, 2.6f);
@@ -262,7 +206,7 @@ namespace BattleFortress
             _dash = 0f;
             _cd = 0f;
             _evolveT = 0f;
-            _hasTarget = false; _marked = false; HideMoveMarker();
+            _hasTarget = false; _marked = false; _marker?.Hide();
             ApplyTier(st);
         }
 
@@ -272,7 +216,7 @@ namespace BattleFortress
             transform.position = Vector3.zero;
             _dash = 0f;
             _cd = 0f;
-            _hasTarget = false; _marked = false; HideMoveMarker();
+            _hasTarget = false; _marked = false; _marker?.Hide();
             var pp = transform.position;
             Fx.PlayVfx(VfxKeys.EvolveSheet, pp.x, pp.y + 1.4f, pp.z, 5.5f);
             Fx.PlayVfx(VfxKeys.RingWave, pp.x, pp.y + 0.3f, pp.z, 5.0f);
@@ -348,7 +292,7 @@ namespace BattleFortress
                         {
                             _lastMark = p;
                             _marked = true;
-                            ShowMoveMarker(p); // LoL 式落点光标
+                            _marker.Show(p); // LoL 式落点光标
                         }
                     }
                 }
@@ -363,7 +307,7 @@ namespace BattleFortress
             {
                 _hasTarget = false; // 到点停下
                 _marked = false;
-                HideMoveMarker();
+                _marker.Hide();
                 return false;
             }
             _dir = to / dist;
@@ -377,8 +321,8 @@ namespace BattleFortress
             if (_cd > 0f) _cd -= dt;
             if (_edgeTipT > 0f) _edgeTipT -= dt;
             SyncFrontCannon(); // 升级卡/商店/进化解锁后立刻显示，重开后自动隐藏
-            if (GS.Over || GS.Paused) { HideMoveMarker(); return; }
-            TickMoveMarker(dt);
+            if (GS.Over || GS.Paused) { _marker?.Hide(); return; }
+            _marker?.Tick(dt);
 
             // 无敌 = 进化金光演出 或 复活保护（复活时长由配置驱动）
             GS.Invincible = _evolveT > 0f || GS.ReviveInvincibleT > 0f;
@@ -388,7 +332,7 @@ namespace BattleFortress
                 _evolveTick -= dt;
                 if (_evolveTick <= 0f)
                 {
-                    _evolveTick = 0.18f;
+                    _evolveTick = GameConfig.EvolveFxInterval;
                     var ep = transform.position;
                     Fx.PlayVfx(VfxKeys.StarSpark,
                         ep.x + (Random.value * 2f - 1f), ep.y + 1f + Random.value, ep.z + (Random.value * 2f - 1f), 1.2f);
@@ -405,7 +349,7 @@ namespace BattleFortress
                 _dashTick -= dt;
                 if (_dashTick <= 0f)
                 {
-                    _dashTick = 0.13f;
+                    _dashTick = GameConfig.DashFxInterval;
                     var cp = transform.position;
                     Fx.PlayVfx(VfxKeys.SpeedLine, cp.x, cp.y + 1f, cp.z, 2.2f);
                 }
@@ -413,7 +357,7 @@ namespace BattleFortress
 
             if (!moving && _dash <= 0f) return;
 
-            float boost = _dash > 0f ? 3.1f : 1f;
+            float boost = _dash > 0f ? GameConfig.DashSpeedMul : 1f;
             float sp = speed * GS.SpeedMul * boost;
             Vector3 pos = transform.position;
             float half = GameConfig.ArenaHalf;
@@ -462,9 +406,10 @@ namespace BattleFortress
                     var ep = e.transform.position;
                     float dx = ep.x - pos.x;
                     float dz = ep.z - pos.z;
-                    if (dx * dx + dz * dz < 2.4f * 2.4f)
+                    float dashR = GameConfig.DashHitRadius;
+                    if (dx * dx + dz * dz < dashR * dashR)
                     {
-                        float cd = GameConfig.SideDmg * 1.5f * GS.DmgMul * GS.SizeFactor(e.Size());
+                        float cd = GameConfig.SideDmg * GameConfig.DashDmgMul * GS.DmgMul * GS.SizeFactor(e.Size());
                         e.Hp -= cd;
                         Fx.PopDmg(ep, cd, true);
                         Fx.PlayVfx(VfxKeys.HitSheet, ep.x, 1f, ep.z, 1.9f);

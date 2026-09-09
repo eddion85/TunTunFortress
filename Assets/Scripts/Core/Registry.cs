@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace BattleFortress
@@ -31,16 +32,20 @@ namespace BattleFortress
             Drops.Clear();
         }
 
-        /// <summary>统计场上存活（未标记死亡）的敌人数</summary>
-        public static int AliveEnemyCount()
+        /// <summary>按条件统计场上存活（未标记死亡）的敌人数；match 为 null 时统计全部</summary>
+        public static int CountAlive(Predicate<EnemyUnit> match = null)
         {
             int n = 0;
             for (int i = 0; i < Enemies.Count; i++)
             {
                 var e = Enemies[i];
-                if (e != null && !e.Dead && e.gameObject != null) n++;
+                if (e == null || e.Dead || e.gameObject == null) continue;
+                if (match == null || match(e)) n++;
             }
             return n;
         }
+
+        /// <summary>统计场上存活（未标记死亡）的敌人数</summary>
+        public static int AliveEnemyCount() => CountAlive(null);
     }
 }

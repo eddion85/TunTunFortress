@@ -18,8 +18,10 @@ namespace BattleFortress
         /// <param name="hitFxScale">命中贴片尺寸</param>
         /// <param name="ringScale">冲击波环尺寸，&lt;=0 不显示</param>
         /// <param name="shake">震屏强度，&lt;=0 不震</param>
+        /// <param name="sfx">命中音效（SfxKeys），空 = 默认 HitEnemy</param>
         public static void DirectHit(EnemyUnit target, float baseDamage, Vector3 fxPos,
-            bool big = false, float hitFxScale = 1.5f, float ringScale = 0f, float shake = 0f)
+            bool big = false, float hitFxScale = 1.5f, float ringScale = 0f, float shake = 0f,
+            string sfx = null)
         {
             if (target == null || target.Dead) return;
 
@@ -27,7 +29,7 @@ namespace BattleFortress
             target.Hp -= dmg;
             Fx.PopDmg(fxPos, dmg, big);
 
-            AudioKit.PlaySfx(SfxKeys.HitEnemy);
+            AudioKit.PlaySfx(string.IsNullOrEmpty(sfx) ? SfxKeys.HitEnemy : sfx);
             Fx.PlayVfx(VfxKeys.HitSheet, fxPos.x, fxPos.y + 1f, fxPos.z, hitFxScale);
             if (ringScale > 0f) Fx.PlayVfx(VfxKeys.RingWave, fxPos.x, fxPos.y + 0.6f, fxPos.z, ringScale);
             if (shake > 0f) Fx.Shake(shake);

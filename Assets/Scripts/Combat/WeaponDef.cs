@@ -98,7 +98,7 @@ namespace BattleFortress
                 ShellLife = GameConfig.ShellLife,
                 ImpactRadius = GameConfig.FrontImpactRadius,
                 Side = 0,
-                Cone = 0.35f,
+                Cone = GameConfig.FrontCone,
                 BlindFront = 0f,
                 BossFocus = true,
                 ShellScale = GameConfig.FrontShellScale,

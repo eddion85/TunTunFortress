@@ -14,7 +14,7 @@ namespace BattleFortress
         public const string TypeMagnet = "magnet";
 
         public string Type = TypeCoin;
-        public float Life = 18f;
+        public float Life = GameConfig.Drop.Life;
         public int Value;
         public float Spin;
 
@@ -22,7 +22,7 @@ namespace BattleFortress
         {
             Type = type;
             Value = value;
-            Life = 18f;
+            Life = GameConfig.Drop.Life;
             Spin = Random.value * 6f;
         }
     }

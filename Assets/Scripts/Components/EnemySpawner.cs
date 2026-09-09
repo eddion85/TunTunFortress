@@ -4,8 +4,9 @@ using UnityEngine;
 namespace BattleFortress
 {
     /// <summary>
-    /// 敌人生成与 AI：羊/奶牛逃跑、农夫追击、弓箭手远程、骑兵绕后、Boss 砸地。
-    /// 对应 LayaAir 版 components/EnemySpawner.ts。
+    /// 敌人生成调度 + 主循环驱动：刷怪/Boss 时间表、箭矢模拟、逐帧驱动 AI 与近身攻击。
+    /// 移动决策见 EnemySteer，击杀奖励结算见 KillKit，伤害结算见 DamageKit——
+    /// 本类只做「什么时候刷、每帧让谁做什么」，新增敌种/行为时优先扩展这些协作类。
     /// </summary>
     public class EnemySpawner : MonoBehaviour
     {
@@ -27,7 +28,6 @@ namespace BattleFortress
 
         private readonly Dictionary<string, GameObject> _tpl = new Dictionary<string, GameObject>();
         private float _timer = GameConfig.Survival.SpawnFirstDelay;
-        private int _devourSeq;
         private readonly List<float> _spawnStamps = new List<float>(); // 普通兵出生时间戳（滚动窗口限流）
 
         // ---------------- 生命周期 ----------------
@@ -105,28 +105,10 @@ namespace BattleFortress
         }
 
         /// <summary>场上存活的普通兵数量（Boss 不占普通兵上限）</summary>
-        private static int MobCount()
-        {
-            int n = 0;
-            for (int i = 0; i < Registry.Enemies.Count; i++)
-            {
-                var e = Registry.Enemies[i];
-                if (e != null && !e.IsBoss && !e.Dead) n++;
-            }
-            return n;
-        }
+        private static int MobCount() => Registry.CountAlive(e => !e.IsBoss);
 
         /// <summary>场上存活的 Boss 数量</summary>
-        private static int AliveBossCount()
-        {
-            int n = 0;
-            for (int i = 0; i < Registry.Enemies.Count; i++)
-            {
-                var e = Registry.Enemies[i];
-                if (e != null && e.IsBoss && !e.Dead) n++;
-            }
-            return n;
-        }
+        private static int AliveBossCount() => Registry.CountAlive(e => e.IsBoss);
 
         /// <summary>滚动窗口限流：最近 SpawnWindowSeconds 秒内出生的普通兵是否已达上限</summary>
         private bool WindowSpawnBlocked()
@@ -192,7 +174,7 @@ namespace BattleFortress
             var kind = PickKind();
             Vector3 pp = player.position;
             float ang = Random.value * Mathf.PI * 2f;
-            float dist = 15f + Random.value * 8f;
+            float dist = GameConfig.Ai.SpawnRingMin + Random.value * GameConfig.Ai.SpawnRingJitter;
             float half = GameConfig.ArenaHalf;
             float x = Mathf.Clamp(pp.x + Mathf.Cos(ang) * dist, -half, half);
             float z = Mathf.Clamp(pp.z + Mathf.Sin(ang) * dist, -half, half);
@@ -214,8 +196,9 @@ namespace BattleFortress
 
             // 多只 Boss 沿玩家外圈不同方向落位，避免叠在一起
             float ang = -Mathf.PI / 2f + slot * (Mathf.PI * 2f / Mathf.Max(2, GameConfig.Survival.BossCountMax));
-            float bx = Mathf.Clamp(pp.x + Mathf.Cos(ang) * 18f, -GameConfig.ArenaHalf, GameConfig.ArenaHalf);
-            float bz = Mathf.Clamp(pp.z + Mathf.Sin(ang) * 18f, -GameConfig.ArenaHalf, GameConfig.ArenaHalf);
+            float ring = GameConfig.Ai.BossSpawnRing;
+            float bx = Mathf.Clamp(pp.x + Mathf.Cos(ang) * ring, -GameConfig.ArenaHalf, GameConfig.ArenaHalf);
+            float bz = Mathf.Clamp(pp.z + Mathf.Sin(ang) * ring, -GameConfig.ArenaHalf, GameConfig.ArenaHalf);
             var go = ObjectPool.Spawn(prefab, new Vector3(bx, 0f, bz), Quaternion.identity, transform);
             go.transform.localScale = new Vector3(EnemyDefs.Boss.Scale, EnemyDefs.Boss.Scale, EnemyDefs.Boss.Scale);
 
@@ -232,9 +215,9 @@ namespace BattleFortress
             AudioKit.PlaySfx(SfxKeys.BossAppear);
             AudioKit.PlayMusic(BgmKeys.Boss);
             var bp = unit.transform.position;
-            Fx.PlayVfx(VfxKeys.RingWave, bp.x, 0.3f, bp.z, 7f);
-            Fx.PlayVfx(VfxKeys.LightBeam, bp.x, 2f, bp.z, 5.5f);
-            Fx.Shake(2.4f);
+            Fx.PlayVfx(VfxKeys.RingWave, bp.x, 0.3f, bp.z, GameConfig.Ai.BossAppearRingFx);
+            Fx.PlayVfx(VfxKeys.LightBeam, bp.x, 2f, bp.z, GameConfig.Ai.BossAppearBeamFx);
+            Fx.Shake(GameConfig.Ai.BossAppearShake);
             GameBus.Emit(GameEvents.Boss, true);
             GameBus.Emit(GameEvents.Float, "农场守卫来袭!");
         }
@@ -263,6 +246,7 @@ namespace BattleFortress
 
         private void UpdateProjectiles(float dt, Vector3 pp)
         {
+            float hitR = GameConfig.Ai.ArrowHitRadius;
             for (int i = Registry.Projectiles.Count - 1; i >= 0; i--)
             {
                 var a = Registry.Projectiles[i];
@@ -276,11 +260,11 @@ namespace BattleFortress
 
                 float dx = pp.x - p.x;
                 float dz = pp.z - p.z;
-                if (dx * dx + dz * dz < 1.2f * 1.2f)
+                if (dx * dx + dz * dz < hitR * hitR)
                 {
                     GS.Damage(a.Dmg);
-                    Fx.PlayVfx(VfxKeys.HitSheet, p.x, 1f, p.z, 1.6f);
-                    Fx.Shake(0.4f);
+                    Fx.PlayVfx(VfxKeys.HitSheet, p.x, 1f, p.z, GameConfig.Ai.ArrowHitFx);
+                    Fx.Shake(GameConfig.Ai.ArrowHitShake);
                     ObjectPool.Despawn(a.gameObject);
                     Registry.Projectiles.RemoveAt(i);
                     continue;
@@ -292,47 +276,6 @@ namespace BattleFortress
                     Registry.Projectiles.RemoveAt(i);
                 }
             }
-        }
-
-        // ---------------- 吞噬结算 ----------------
-        private void Devour(EnemyUnit e)
-        {
-            e.Dead = true;
-            GS.AddCombo();
-            _devourSeq = (_devourSeq + 1) % 3;
-            AudioKit.PlaySfx(_devourSeq == 0 ? SfxKeys.Devour1 : _devourSeq == 1 ? SfxKeys.Devour2 : SfxKeys.Devour3);
-
-            // Boss 死亡：安排下一只 Boss 的出场时间（配置间隔）；是否真的补由主循环按数量目标判断
-            if (e.IsBoss)
-            {
-                GS.BossWindowStart = GS.Elapsed;
-                GS.NextBossTime = GS.Elapsed + GameConfig.Survival.BossInterval;
-                AudioKit.PlaySfx(SfxKeys.ExplosionBig);
-                GameBus.Emit(GameEvents.Boss, false);
-            }
-
-            float exp;
-            if (e.Kind != null && e.Kind.expMax > e.Kind.expMin)
-                exp = e.Kind.expMin + Random.value * (e.Kind.expMax - e.Kind.expMin);
-            else
-                exp = e.Kind != null ? e.Kind.exp : 0f;
-
-            GS.AddExp(e.IsBoss ? EnemyDefs.Boss.Exp : exp);
-            GS.AddKill(e.Kind != null ? e.Kind.prog : 0, e.IsBoss);
-
-            var ep = e.transform.position;
-            // 小怪死亡只播一层爆炸，Boss 才叠满层次
-            Fx.PlayVfx(VfxKeys.ExplosionSheet, ep.x, ep.y + 0.9f, ep.z, e.IsBoss ? 5.0f : 1.8f);
-            if (e.IsBoss)
-            {
-                Fx.PlayVfx(VfxKeys.DevourRing, ep.x, ep.y + 0.6f, ep.z, 5.0f);
-                Fx.PlayVfx(VfxKeys.StarSpark, ep.x, ep.y + 1.2f, ep.z, 3.0f);
-            }
-            Fx.Shake(e.IsBoss ? 1.8f : 0.22f);
-            DropSystem.SpawnDrop(ep.x, ep.z, e.Kind, e.IsBoss);
-
-            // Boss 有骨骼死亡动画：节点延迟到 die 播放完再销毁（在主循环里处理）
-            if (!e.IsBoss || e.Animator == null) ObjectPool.Despawn(e.gameObject);
         }
 
         private static void FaceDir(EnemyUnit e, float tx, float tz)
@@ -407,7 +350,13 @@ namespace BattleFortress
                 {
                     if (e.IsBoss && e.Animator != null)
                     {
-                        if (!e.Dying) { Devour(e); e.Dying = true; e.DieT = 1.6f; BossMotion.Play(e, "die"); }
+                        if (!e.Dying)
+                        {
+                            KillKit.Reward(e);
+                            e.Dying = true;
+                            e.DieT = GameConfig.Ai.BossDieAnimTime;
+                            BossMotion.Play(e, "die");
+                        }
                         e.DieT -= dt;
                         if (e.DieT <= 0f)
                         {
@@ -417,7 +366,7 @@ namespace BattleFortress
                     }
                     else
                     {
-                        Devour(e);
+                        KillKit.Reward(e);
                         Registry.Enemies.RemoveAt(i);
                     }
                     continue;
@@ -429,7 +378,7 @@ namespace BattleFortress
                 if (e.IsBoss && e.Animator != null && e.Hp < e.LastHp - 0.01f)
                 {
                     e.LastHp = e.Hp;
-                    if (!(e.AttackT > 0f)) { BossMotion.Play(e, "hit"); e.HitT = 0.4f; }
+                    if (!(e.AttackT > 0f)) { BossMotion.Play(e, "hit"); e.HitT = GameConfig.Ai.BossHitAnimTime; }
                 }
 
                 // 吞噬：核心圈内秒杀；强化外圈只磨血，越近越痛
@@ -437,7 +386,7 @@ namespace BattleFortress
                 float coreR = boosted ? radius * GameConfig.DevourCoreRatio : radius;
                 if (!e.IsBoss && dl < coreR && e.Size() <= GS.DevourSizeCap())
                 {
-                    Devour(e);
+                    KillKit.Reward(e);
                     Registry.Enemies.RemoveAt(i);
                     continue;
                 }
@@ -448,9 +397,9 @@ namespace BattleFortress
                     if (e.DevourTick <= 0f)
                     {
                         e.DevourTick = GameConfig.DevourDotTick;
-                        float band = Mathf.Max(0.001f, radius - coreR);   // 核心圈边缘满额、外圈边缘 15%
+                        float band = Mathf.Max(0.001f, radius - coreR);   // 核心圈边缘满额、外圈边缘 DevourDotEdge
                         float t = Mathf.Clamp01(1f - (dl - coreR) / band);
-                        float factor = 0.15f + 0.85f * Mathf.Pow(t, 1.3f);
+                        float factor = GameConfig.Ai.DevourDotEdge + (1f - GameConfig.Ai.DevourDotEdge) * Mathf.Pow(t, GameConfig.Ai.DevourDotPow);
                         float dmg = GameConfig.DevourDot * factor * GS.DmgMul * GameConfig.DevourDotTick;
                         e.Hp -= dmg;
                         Fx.PopDmg(p, dmg, false);
@@ -462,9 +411,10 @@ namespace BattleFortress
                 float tx = 0f, tz = 0f;
 
                 // 强化吞噬 = 真空吸附，敌人被拖向玩家（与冲撞的玩家突进分工）
-                if (GS.DevourBoosted() && !e.IsBoss && dl < radius * 2.4f)
+                if (boosted && !e.IsBoss && dl < radius * GameConfig.Ai.DevourPullRadiusMul)
                 {
-                    float pull = 9f * (1f - dl / (radius * 2.4f)) + 3f;
+                    float pullRange = radius * GameConfig.Ai.DevourPullRadiusMul;
+                    float pull = GameConfig.Ai.DevourPullFar * (1f - dl / pullRange) + GameConfig.Ai.DevourPullNear;
                     p.x += (dx / dl) * pull * dt;
                     p.z += (dz / dl) * pull * dt;
                     e.transform.position = p;
@@ -472,86 +422,24 @@ namespace BattleFortress
 
                 if (e.IsBoss)
                 {
-                    // Boss：贴近砸地，血量过半后提速
-                    sp = EnemyDefs.Boss.Speed * (e.Hp < e.MaxHp * EnemyDefs.Boss.Phase2At ? 1.4f : 1f);
-                    e.SlamCd -= dt;
-                    if (dl < EnemyDefs.Boss.SlamRadius && e.SlamCd <= 0f)
-                    {
-                        e.SlamCd = EnemyDefs.Boss.SlamCd;
-                        GS.Damage(EnemyDefs.Boss.Dmg * profile.dmgMul);
-                        AudioKit.PlaySfx(SfxKeys.ExplosionBig);
-                        Fx.PlayVfx(VfxKeys.RingWave, p.x, 0.3f, p.z, 4.5f);
-                        Fx.PlayVfx(VfxKeys.ExplosionSheet, p.x, 1f, p.z, 4.0f);
-                        Fx.Shake(1.4f);
-                        if (e.Animator != null)
-                        {
-                            BossMotion.Play(e, "attack");
-                            e.AttackT = 0.7f;
-                        }
-                    }
-                    tx = dx / dl;
-                    tz = dz / dl;
+                    StepBoss(e, dt, dl, dx, dz, p, profile.dmgMul, out tx, out tz, ref sp);
                 }
-                else if (e.Kind != null && e.Kind.ranged)
+                else if (e.Kind != null)
                 {
-                    // 弓箭手：维持 8~11m 射程带 [策划书 4.4]
-                    e.ShootCd -= dt;
-                    float sign = dl < 8f ? -1f : dl > 11f ? 1f : 0f;
-                    if (dl < 14f && e.ShootCd <= 0f)
+                    // 普通敌兵：移动决策全部在 EnemySteer，这里只负责执行与射箭请求
+                    var steer = EnemySteer.Steer(e, dx, dz, dl, dt);
+                    if (steer.WantShoot)
                     {
-                        e.ShootCd = 2.2f;
+                        e.ShootCd = GameConfig.Ai.ArcherShootCd;
                         ShootArrow(e, pp);
                     }
-                    tx = (dx / dl) * sign;
-                    tz = (dz / dl) * sign;
-                }
-                else if (e.Kind != null && e.Kind.flank)
-                {
-                    // 骑兵：远距离绕侧切入 [策划书 4.4]
-                    e.FlankT += dt;
-                    if (dl > 6f)
-                    {
-                        float px = -dz / dl;
-                        float pz = dx / dl;
-                        float w = Mathf.Min(1f, dl / 14f) * e.FlankSide;
-                        tx = (dx / dl) * 0.75f + px * w;
-                        tz = (dz / dl) * 0.75f + pz * w;
-                        float tl = Mathf.Sqrt(tx * tx + tz * tz);
-                        if (tl > 0.0001f) { tx /= tl; tz /= tl; }
-                    }
-                    else
-                    {
-                        tx = dx / dl;
-                        tz = dz / dl;
-                    }
-                }
-                else if (e.Kind != null && e.Kind.wander)
-                {
-                    // 羊：近逃远追、中间游荡
-                    if (dl < 4f)
-                    {
-                        tx = -(dx / dl); tz = -(dz / dl); sp *= 1.1f;
-                    }
-                    else if (dl > 9f)
-                    {
-                        tx = dx / dl; tz = dz / dl; sp *= 0.85f;
-                    }
-                    else
-                    {
-                        e.WanderT -= dt;
-                        if (e.WanderT <= 0f)
-                        {
-                            e.WanderT = 1.2f + Random.value * 1.5f;
-                            e.WanderA = Random.value * Mathf.PI * 2f;
-                        }
-                        tx = Mathf.Cos(e.WanderA);
-                        tz = Mathf.Sin(e.WanderA);
-                        sp *= 0.6f;
-                    }
+                    tx = steer.Tx;
+                    tz = steer.Tz;
+                    sp *= steer.SpeedMul;
                 }
                 else
                 {
-                    // 农夫/奶牛：直线追击
+                    // 兜底：没有敌种表的单位直线追击
                     tx = dx / dl;
                     tz = dz / dl;
                 }
@@ -560,14 +448,14 @@ namespace BattleFortress
                 // 只有即将被核心圈吞下的小体积敌人不造成贴身伤害；
                 // 强化外圈的敌人只是被磨血/吸附，仍活着，贴身照常造成伤害
                 bool willBeEaten = !e.IsBoss && dl < coreR && e.Size() <= GS.DevourSizeCap();
-                float hitR = e.IsBoss ? 3.2f : 1.9f;
+                float hitR = e.IsBoss ? GameConfig.Ai.MeleeHitRadiusBoss : GameConfig.Ai.MeleeHitRadius;
                 bool isRanged = e.Kind != null && e.Kind.ranged;
                 if (dl < hitR && !willBeEaten && !isRanged && e.HitCd <= 0f && e.Damage() > 0f)
                 {
-                    e.HitCd = 1f;
+                    e.HitCd = GameConfig.Ai.MeleeHitCd;
                     GS.Damage(e.Damage() * profile.dmgMul);
-                    Fx.PlayVfx(VfxKeys.HitSheet, pp.x, 1.2f, pp.z, 1.8f);
-                    Fx.Shake(0.45f);
+                    Fx.PlayVfx(VfxKeys.HitSheet, pp.x, 1.2f, pp.z, GameConfig.Ai.MeleeHitFx);
+                    Fx.Shake(GameConfig.Ai.MeleeHitShake);
                 }
 
                 float half = GameConfig.ArenaHalf + 4f;
@@ -579,6 +467,32 @@ namespace BattleFortress
 
                 if (e.IsBoss) UpdateBossAnim(e, dt, tx, tz, sp);
             }
+        }
+
+        /// <summary>Boss 逐帧行为：贴近砸地、血量过半提速，输出移动方向</summary>
+        private static void StepBoss(EnemyUnit e, float dt, float dl, float dx, float dz,
+            Vector3 p, float dmgMul, out float tx, out float tz, ref float sp)
+        {
+            // Boss：贴近砸地，血量过半后提速
+            bool phase2 = e.Hp < e.MaxHp * EnemyDefs.Boss.Phase2At;
+            sp = EnemyDefs.Boss.Speed * (phase2 ? GameConfig.Ai.BossPhase2Mul : 1f);
+            e.SlamCd -= dt;
+            if (dl < EnemyDefs.Boss.SlamRadius && e.SlamCd <= 0f)
+            {
+                e.SlamCd = EnemyDefs.Boss.SlamCd;
+                GS.Damage(EnemyDefs.Boss.Dmg * dmgMul);
+                AudioKit.PlaySfx(SfxKeys.ExplosionBig);
+                Fx.PlayVfx(VfxKeys.RingWave, p.x, 0.3f, p.z, GameConfig.Ai.BossSlamRingFx);
+                Fx.PlayVfx(VfxKeys.ExplosionSheet, p.x, 1f, p.z, GameConfig.Ai.BossSlamExplosionFx);
+                Fx.Shake(GameConfig.Ai.BossSlamShake);
+                if (e.Animator != null)
+                {
+                    BossMotion.Play(e, "attack");
+                    e.AttackT = GameConfig.Ai.BossAttackAnimTime;
+                }
+            }
+            tx = dx / dl;
+            tz = dz / dl;
         }
     }
 }
