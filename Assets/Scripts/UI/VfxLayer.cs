@@ -29,6 +29,27 @@ namespace BattleFortress
         [SerializeField] private Color barBgColor = new Color(0.102f, 0.059f, 0.024f);
         [SerializeField] private Color barFillColor = new Color(0.890f, 0.192f, 0.153f);
 
+        [Header("加色发光特效（黑底光效走 Additive，消除黑框）")]
+        [Range(0.2f, 1.6f)][SerializeField] private float additiveBoost = 0.95f;
+
+        /// <summary>
+        /// 黑底发光类特效：这些贴图是「黑底 + 光形」，必须用加色混合（黑=不发光）。
+        /// 烟雾/阴影/落点圈/吞噬圈等靠普通 alpha 混合的特效不在此列。
+        /// </summary>
+        private static readonly HashSet<string> AdditiveUrls = new HashSet<string>
+        {
+            VfxKeys.FireBall,
+            VfxKeys.HitSheet,
+            VfxKeys.ExplosionSheet,
+            VfxKeys.EvolveSheet,
+            VfxKeys.RingWave,
+            VfxKeys.LightBeam,
+            VfxKeys.StarSpark,
+            VfxKeys.SpeedLine,
+            VfxKeys.SoftCircle
+        };
+        private static Material _additiveMat;
+
         // ---------------- 内部数据 ----------------
         private class FxItem
         {
@@ -189,6 +210,25 @@ namespace BattleFortress
             else Destroy(img.gameObject);
         }
 
+        /// <summary>加色材质（懒加载，Resources/shaders/UIAdditive）</summary>
+        private static Material AdditiveMaterial()
+        {
+            if (_additiveMat == null)
+            {
+                var sh = Resources.Load<Shader>("shaders/UIAdditive");
+                if (sh != null) _additiveMat = new Material(sh) { name = "Runtime_UIAdditive", hideFlags = HideFlags.HideAndDontSave };
+            }
+            return _additiveMat;
+        }
+
+        /// <summary>按特效资源选择材质：黑底发光类用加色，其余用 uGUI 默认透明混合</summary>
+        private void ApplyFxMaterial(Image img, string url)
+        {
+            var mat = AdditiveUrls.Contains(url) ? AdditiveMaterial() : null;
+            if (mat != null) mat.SetFloat("_AddBoost", additiveBoost);
+            img.material = mat;   // null = 回到 UI/Default，保证对象池复用时材质正确切换
+        }
+
         private void OnVfx(object payload)
         {
             var p = payload as VfxPayload;
@@ -210,6 +250,7 @@ namespace BattleFortress
             if (frames.Length == 0) return;
 
             var img = ObtainFx(pool);
+            ApplyFxMaterial(img, p.url);
             if (p.trail) img.transform.SetAsFirstSibling(); // 扬尘压在战斗特效/玩家下层
             img.sprite = frames[0];
 
