@@ -68,11 +68,24 @@ namespace BattleFortress
         // 形态模型内部的炮开关节点（如 Tier3 的 dbdp），默认隐藏，按 GS.HasFrontCannon 显隐
         private readonly System.Collections.Generic.List<GameObject> _cannonNodes = new System.Collections.Generic.List<GameObject>();
 
+        [Header("武器挂装（通用 WeaponMountSystem：指定挂点父节点即可换装）")]
+        [SerializeField] private string topSlotId = "Slot_Top";      // 车顶挂点 id（同时也是模型内节点名）
+        [SerializeField, Range(0.1f, 1f)] private float weaponWidthRatio = 0.5f; // 自动尺寸：武器宽度占当前形态宽度比例
+        private WeaponMountSystem _weapons;
+        // 车顶同一槽位互斥：火箭炮显示时隐藏模型内 dbdp 顶炮，避免重叠
+        private bool _rocketWantsShow;
+#if UNITY_EDITOR
+        [Header("调试（仅 Editor：勾选后绕过 GS 直接显示，用于对位置/大小/切等级）")]
+        [SerializeField] private bool debugShowRocket = false;
+        [SerializeField, Range(0, 3)] private int debugRocketLevel = 0;
+#endif
+
         // ---------------- 生命周期 ----------------
         private void OnEnable()
         {
             _tiers = new[] { tier0, tier1, tier2, tier3 };
             BuildFrontCannon(); // 尽早隐藏模型内炮节点（dbdp），保证首帧就不显示
+            BuildWeaponRigs();  // 注册武器挂点（默认空挂点，装备后才显示模型）
             ApplyTier(GS.Stage);
             GameBus.On(GameEvents.Evolve, OnEvolve);
             GameBus.On(GameEvents.Skill, OnSkill);
@@ -86,6 +99,8 @@ namespace BattleFortress
             GameBus.Off(GameEvents.Skill, OnSkill);
             GameBus.Off(GameEvents.Restart, OnRestart);
             GameBus.Off(GameEvents.Revive, OnRevive);
+            _weapons?.Dispose();
+            _weapons = null;
         }
 
         private void Start()
@@ -141,12 +156,58 @@ namespace BattleFortress
         /// <summary>按解锁状态显隐模型内炮节点（升级卡/商店/一阶进化解锁，重开关卡时隐藏）</summary>
         private void SyncFrontCannon()
         {
-            bool show = GS.HasFrontCannon;
+            // 车顶槽位互斥：火箭炮显示时隐藏模型内 dbdp 顶炮
+            bool show = GS.HasFrontCannon && !_rocketWantsShow;
             for (int i = 0; i < _cannonNodes.Count; i++)
             {
                 var n = _cannonNodes[i];
                 if (n != null && n.activeSelf != show) n.SetActive(show);
             }
+        }
+
+        /// <summary>当前激活形态的根（形态切换时挂点委托实时取它）</summary>
+        private GameObject ActiveTier()
+        {
+            if (_tiers == null) return null;
+            int i = Mathf.Clamp(_skinStage, 0, _tiers.Length - 1);
+            return _tiers[i];
+        }
+
+        /// <summary>
+        /// 注册武器挂点：车顶 Slot_Top。父节点与尺寸参考根都通过委托实时解析，
+        /// 进化换形态后 WeaponMountSystem.RebindAll 会把武器平移到新形态的同名挂点。
+        /// 以后加新槽位武器：在这里再 Bind 一个 id 即可。
+        /// </summary>
+        private void BuildWeaponRigs()
+        {
+            if (_weapons != null || _tiers == null) return;
+            _weapons = new WeaponMountSystem();
+            _weapons.Bind(topSlotId,
+                () => // 挂点父节点：当前激活形态内按名深找
+                {
+                    var tier = ActiveTier();
+                    return tier != null ? FindDeepChild(tier.transform, topSlotId) : null;
+                },
+                () => ActiveTier()?.transform, // 尺寸参考根：当前形态模型
+                weaponWidthRatio);
+        }
+
+        /// <summary>按装备状态同步车顶火箭炮显隐与等级（商店加装/升级、重开都会经过这里）</summary>
+        private void SyncTopRocket()
+        {
+            bool show;
+            int level;
+#if UNITY_EDITOR
+            // Editor 调试开关：勾选后绕过 GS，直接在 Inspector 切等级看效果
+            if (debugShowRocket) { show = true; level = debugRocketLevel; }
+            else
+#endif
+            { show = GS.HasRocketLauncher; level = GS.RocketLevel; }
+
+            _rocketWantsShow = show;
+            // Equip 同路径自动 no-op、换等级自动换模型、不显示则卸下；挂点内永远只有一件武器
+            if (show) _weapons?.Equip(topSlotId, WeaponCatalog.Rocket(level));
+            else _weapons?.Unequip(topSlotId);
         }
 
         /// <summary>按进化阶段切换堡垒外观：四个形态都在场景里，只做显隐</summary>
@@ -157,6 +218,7 @@ namespace BattleFortress
             if (_tiers == null) return;
             for (int i = 0; i < _tiers.Length; i++)
                 if (_tiers[i] != null) _tiers[i].SetActive(i == stage);
+            _weapons?.RebindAll(); // 换形态后把所有挂点武器平移到新形态的同名挂点
         }
 
         // ---------------- 冲撞技能 ----------------
@@ -320,6 +382,7 @@ namespace BattleFortress
             float dt = Mathf.Min(Time.deltaTime, GameConfig.MaxDelta);
             if (_cd > 0f) _cd -= dt;
             if (_edgeTipT > 0f) _edgeTipT -= dt;
+            SyncTopRocket();    // 先算火箭炮需求，供 dbdp 互斥判断
             SyncFrontCannon(); // 升级卡/商店/进化解锁后立刻显示，重开后自动隐藏
             if (GS.Over || GS.Paused) { _marker?.Hide(); return; }
             _marker?.Tick(dt);
