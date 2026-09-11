@@ -45,6 +45,8 @@ namespace BattleFortress
         public static bool HasMagnet = false;  // 磁力线圈（堡垒外观）
         public static bool HasRocketLauncher = false; // 车顶火箭炮：动态挂到 Slot_Top
         public static int RocketLevel = 0;     // 火箭炮等级 0..3（对应 L0~L3 模型）
+        public static bool HasBatteringRam = false; // 车头攻城锤：动态挂到 Slot_Front
+        public static int RamLevel = 0;        // 攻城锤等级 0..3（对应 L0~L3 模型）
 
         /// <summary>三选一/商店累积的最大生命加成，进化重算时必须并入</summary>
         public static float HpBonusMul = 1f;
@@ -100,6 +102,8 @@ namespace BattleFortress
             HasMagnet = false;
             HasRocketLauncher = false;
             RocketLevel = 0;
+            HasBatteringRam = false;
+            RamLevel = 0;
             HpBonusMul = 1f;
             UpgradePoints = 0;
 

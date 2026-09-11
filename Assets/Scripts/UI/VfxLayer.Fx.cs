@@ -80,9 +80,9 @@ namespace BattleFortress
             if (p == null || container == null) return;
 
             // 拖尾走独立列表与对象池，保证烟团再多也挤不掉受击/爆炸等战斗特效
-            var live = p.trail ? _trailItems : _items;
-            var pool = p.trail ? _trailPool : _fxPool;
-            int cap = p.trail ? Mathf.Max(1, maxTrail) : maxFx;
+            List<FxItem> live = p.groundMark ? _trackItems : (p.trail ? _trailItems : _items);
+            List<Image> pool = p.groundMark ? _trackPool : (p.trail ? _trailPool : _fxPool);
+            int cap = p.groundMark ? MaxTrack : (p.trail ? Mathf.Max(1, maxTrail) : maxFx);
             if (live.Count >= cap)
             {
                 // 池满时淘汰最老的一个，而不是直接丢弃新特效
@@ -96,7 +96,7 @@ namespace BattleFortress
 
             var img = ObtainFx(pool);
             ApplyFxMaterial(img, p.url);
-            if (p.trail) img.transform.SetAsFirstSibling(); // 扬尘压在战斗特效/玩家下层
+            if (p.trail || p.groundMark) img.transform.SetAsFirstSibling(); // 扬尘/车辙压在战斗特效/玩家下层
             img.sprite = frames[0];
 
             bool sheet = frames.Length > 1;
@@ -109,11 +109,14 @@ namespace BattleFortress
                 maxLife = life,
                 frames = frames,
                 scale = p.scale,
-                spin = sheet ? 0f : Random.value * 40f - 20f,
+                spin = p.groundMark ? 0f : (sheet ? 0f : Random.value * 40f - 20f),
                 rise = p.rise >= 0f ? p.rise : (sheet ? 10f : 26f),
                 growEnd = p.grow >= 0f ? p.grow : (sheet ? 0.35f : 0.8f),
                 startAlpha = p.alpha >= 0f ? p.alpha : 1f,
-                frame = 0
+                frame = 0,
+                tint = p.tint,
+                angle = p.angle,
+                stretch = p.stretch > 0f ? p.stretch : 1f
             });
         }
 
@@ -158,9 +161,10 @@ namespace BattleFortress
 
                 float grow = 1f + t * it.growEnd;
                 float s = it.scale * grow * 0.75f;
-                img.rectTransform.localScale = new Vector3(s, s, 1f);
+                img.rectTransform.localScale = new Vector3(s, s * it.stretch, 1f);
+                img.rectTransform.localRotation = Quaternion.Euler(0f, 0f, it.angle);
 
-                var col = img.color;
+                var col = it.tint;
                 // 序列帧只轻微淡出；单帧特效（含拖尾烟团）从 startAlpha 线性淡出
                 col.a = it.frames.Length > 1 ? 1f - t * 0.25f : it.startAlpha * (1f - t);
                 img.color = col;

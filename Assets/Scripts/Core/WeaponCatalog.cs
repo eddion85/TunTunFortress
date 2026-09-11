@@ -13,7 +13,17 @@ namespace BattleFortress
         public const string RocketL2 = "art/models/equip/SM_Weapon_Rocket_L2";
         public const string RocketL3 = "art/models/equip/SM_Weapon_Rocket_L3";
 
+        // 车侧弩箭（左右挂点通用同一个模型，朝向由挂点局部旋转决定）
+        public const string Crossbow = "art/models/equip/SM_Weapon_Crossbow";
+
+        // 车头攻城锤（4 个等级模型，挂 Slot_Front，长轴朝前）
+        public const string RamL0 = "art/models/equip/SM_Weapon_Ram_L0";
+        public const string RamL1 = "art/models/equip/SM_Weapon_Ram_L1";
+        public const string RamL2 = "art/models/equip/SM_Weapon_Ram_L2";
+        public const string RamL3 = "art/models/equip/SM_Weapon_Ram_L3";
+
         private static readonly string[] Rockets = { RocketL0, RocketL1, RocketL2, RocketL3 };
+        private static readonly string[] Rams = { RamL0, RamL1, RamL2, RamL3 };
 
         /// <summary>按等级取火箭炮模型路径（等级自动夹取到合法范围）</summary>
         public static string Rocket(int level)
@@ -21,6 +31,14 @@ namespace BattleFortress
             if (level < 0) return null;
             if (level >= Rockets.Length) level = Rockets.Length - 1;
             return Rockets[level];
+        }
+
+        /// <summary>按等级取攻城锤模型路径（等级自动夹取到合法范围）</summary>
+        public static string Ram(int level)
+        {
+            if (level < 0) return null;
+            if (level >= Rams.Length) level = Rams.Length - 1;
+            return Rams[level];
         }
 
         // 以后新增武器示例：

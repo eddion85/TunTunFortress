@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using UnityEngine; // Color（VfxPayload 染色）
 
 namespace BattleFortress
 {
@@ -36,6 +37,10 @@ namespace BattleFortress
         public float grow = -1f;      // 存活期扩散倍率（末态 = 1 + grow）
         public float alpha = -1f;     // 起始透明度
         public bool trail;            // true = 移动拖尾，走独立对象池与上限
+        public bool groundMark;       // true = 地面车辙印，走独立对象池，支持染色/朝向/拉长
+        public Color tint = Color.white; // 染色（默认白色=保持贴图原色）
+        public float angle;           // 屏幕空间朝向（度，沿行驶方向拉长时用）
+        public float stretch = 1f;    // 沿朝向上的额外拉长倍数
     }
 
     /// <summary>世界空间伤害数字请求</summary>

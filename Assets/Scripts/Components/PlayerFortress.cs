@@ -1,4 +1,5 @@
 using UnityEngine;
+using System.Collections.Generic;
 using UnityEngine.EventSystems;
 
 namespace BattleFortress
@@ -61,6 +62,7 @@ namespace BattleFortress
         private float _edgeTipT;
 
         private float _trailT;   // 移动冒烟拖尾吐烟计时
+        private float _trackT;   // 地面车辙落印计时（左右各一道，沿真实轨迹）
 
         [Header("正面直射炮外观（模型内开关节点默认隐藏，HasFrontCannon 解锁后显示）")]
         [SerializeField] private string cannonNodeName = "dbdp";           // 形态模型内炮开关节点的名字（Blender 合成时命名）
@@ -71,13 +73,35 @@ namespace BattleFortress
         [Header("武器挂装（通用 WeaponMountSystem：指定挂点父节点即可换装）")]
         [SerializeField] private string topSlotId = "Slot_Top";      // 车顶挂点 id（同时也是模型内节点名）
         [SerializeField, Range(0.1f, 1f)] private float weaponWidthRatio = 0.5f; // 自动尺寸：武器宽度占当前形态宽度比例
+
+        [Header("车侧弩箭（Stage2 每侧1把，Stage3 每侧2把，沿前后排列、朝外射击）")]
+        [SerializeField] private string sideLeftSlotName = "Slot_Side_Left";
+        [SerializeField] private string sideRightSlotName = "Slot_Side_Right";
+        [SerializeField, Range(0.1f, 1f)] private float crossbowWidthRatio = 0.7f; // 弩宽度占车体宽度比例（也是双弩前后间距），上限1保证不超出车体
+        [SerializeField] private Vector3 crossbowEulerLeft = new Vector3(0f, 0f, -90f);  // 左弩朝外：弩身模型 +Y 转到世界 +X，弩臂竖直
+        [SerializeField] private Vector3 crossbowEulerRight = new Vector3(0f, 0f, 90f);  // 右弩朝外：模型 +Y 转到世界 -X
+        private const int MaxCrossbowPerSide = 2;
+        private const int CrossbowUnlockStage = 2; // 达到该进化阶段开始装备
+
+        [Header("车头攻城锤（Slot_Front，4 阶，正前方直线突刺）")]
+        [SerializeField] private string frontSlotId = "Slot_Front";
+        // 攻城锤模型长轴是 Y，按 Y 量长度并旋转 X+90 让长轴对正车头 +Z；数值在 GameConfig
+        private static readonly Vector3 RamEuler = GameConfig.RamLocalEuler;
+
         private WeaponMountSystem _weapons;
+        private AutoWeapon _auto;                       // 战斗层：外观装上后把武器注册给它驱动开火
+        private int _rocketCombatLevel = -1;            // 已接入战斗层的火箭炮等级，-1=未接入
+        private int _ramCombatLevel = -1;               // 已接入战斗层的攻城锤等级，-1=未接入
+        private readonly HashSet<string> _combatRacks = new HashSet<string>(); // 已接入战斗层的弩箭挂点
         // 车顶同一槽位互斥：火箭炮显示时隐藏模型内 dbdp 顶炮，避免重叠
         private bool _rocketWantsShow;
 #if UNITY_EDITOR
         [Header("调试（仅 Editor：勾选后绕过 GS 直接显示，用于对位置/大小/切等级）")]
         [SerializeField] private bool debugShowRocket = false;
         [SerializeField, Range(0, 3)] private int debugRocketLevel = 0;
+        [SerializeField] private bool debugShowCrossbow = false; // 强制两侧满配弩箭，用于对位/朝向检查
+        [SerializeField] private bool debugShowRam = false;      // 强制显示攻城锤，用于对位/突刺检查
+        [SerializeField, Range(0, 3)] private int debugRamLevel = 0;
 #endif
 
         // ---------------- 生命周期 ----------------
@@ -85,6 +109,7 @@ namespace BattleFortress
         {
             _tiers = new[] { tier0, tier1, tier2, tier3 };
             BuildFrontCannon(); // 尽早隐藏模型内炮节点（dbdp），保证首帧就不显示
+            if (_auto == null) _auto = GetComponent<AutoWeapon>();
             BuildWeaponRigs();  // 注册武器挂点（默认空挂点，装备后才显示模型）
             ApplyTier(GS.Stage);
             GameBus.On(GameEvents.Evolve, OnEvolve);
@@ -99,6 +124,7 @@ namespace BattleFortress
             GameBus.Off(GameEvents.Skill, OnSkill);
             GameBus.Off(GameEvents.Restart, OnRestart);
             GameBus.Off(GameEvents.Revive, OnRevive);
+            ReleaseCombatMounts();
             _weapons?.Dispose();
             _weapons = null;
         }
@@ -190,6 +216,115 @@ namespace BattleFortress
                 },
                 () => ActiveTier()?.transform, // 尺寸参考根：当前形态模型
                 weaponWidthRatio);
+
+            // 车头攻城锤：长轴沿模型 Y，按 Y 量长度，旋转后长轴对正车头 +Z
+            _weapons.Bind(frontSlotId,
+                () =>
+                {
+                    var tier = ActiveTier();
+                    return tier != null ? FindDeepChild(tier.transform, frontSlotId) : null;
+                },
+                () => ActiveTier()?.transform,
+                GameConfig.RamLengthRatio, RamEuler, 1,
+                new Vector3(GameConfig.RamThickMul, 1f, GameConfig.RamThickMul)); // 只加粗垂直长轴的 X/Z，长度不变
+
+            // 车侧弩箭：每侧最多 MaxCrossbowPerSide 把，各自一个排架锚点（挂点子节点），沿车体前后排列
+            for (int i = 0; i < MaxCrossbowPerSide; i++)
+            {
+                int idx = i; // 闭包捕获副本
+                _weapons.Bind(SideRackId(true, idx),
+                    () => RackAnchor(sideLeftSlotName, idx, crossbowEulerLeft),
+                    () => ActiveTier()?.transform, crossbowWidthRatio, crossbowEulerLeft);
+                _weapons.Bind(SideRackId(false, idx),
+                    () => RackAnchor(sideRightSlotName, idx, crossbowEulerRight),
+                    () => ActiveTier()?.transform, crossbowWidthRatio, crossbowEulerRight);
+            }
+        }
+
+        private static string SideRackId(bool left, int idx) => (left ? "Crossbow_L" : "Crossbow_R") + idx;
+
+        /// <summary>
+        /// 在侧挂点下取/建第 idx 把弩的排架锚点：两把时沿车体前后（世界 +Z/-Z）各偏半个弩宽，
+        /// 锚点旋转决定弩的朝向。换形态后锚点随新挂点按需重建，武器由 RebindAll 平移过来。
+        /// </summary>
+        private Transform RackAnchor(string slotName, int idx, Vector3 euler)
+        {
+            var tier = ActiveTier();
+            if (tier == null) return null;
+            var slot = FindDeepChild(tier.transform, slotName);
+            if (slot == null) return null;
+
+            const string anchorPrefix = "rack_";
+            var anchor = slot.Find(anchorPrefix + idx);
+            if (anchor == null)
+            {
+                var go = new GameObject(anchorPrefix + idx);
+                anchor = go.transform;
+                anchor.SetParent(slot, false);
+            }
+
+            // 总把数决定排布：1 把居中；2 把前后各半（间距=弩的世界宽度，与自动缩放同口径）
+            float bodyWidth = WeaponMount.MeasureBodyWidth(tier.transform);
+            float spacing = bodyWidth * crossbowWidthRatio;
+            float along = MaxCrossbowPerSide <= 1 ? 0f : (idx == 0 ? -0.5f : 0.5f) * spacing;
+            anchor.localPosition = slot.InverseTransformDirection(Vector3.forward * along);
+            anchor.localRotation = Quaternion.identity; // 朝向由 WeaponMount 的 localEuler 承担
+            return anchor;
+        }
+
+        /// <summary>当前每侧弩箭数量：达到解锁阶段后每升一阶每侧 +1，封顶 MaxCrossbowPerSide</summary>
+        private int CrossbowsPerSide()
+        {
+            int stage = GS.Stage;
+#if UNITY_EDITOR
+            if (debugShowCrossbow) stage = Mathf.Max(stage, CrossbowUnlockStage + MaxCrossbowPerSide - 1);
+#endif
+            if (stage < CrossbowUnlockStage) return 0;
+            return Mathf.Min(MaxCrossbowPerSide, stage - CrossbowUnlockStage + 1);
+        }
+
+        /// <summary>按进化阶段同步两侧弩箭：达到数量就 Equip，不足就卸下多余的</summary>
+        private void SyncCrossbows()
+        {
+            int perSide = CrossbowsPerSide();
+            for (int i = 0; i < MaxCrossbowPerSide; i++)
+            {
+                // 模型 Slot_Side_Left 在 +X 侧 → 选敌半场 side=+1；Right 在 -X 侧 → -1
+                SyncOneRack(SideRackId(true, i), i < perSide, +1);
+                SyncOneRack(SideRackId(false, i), i < perSide, -1);
+            }
+        }
+
+        /// <summary>销毁/失活时把动态武器从战斗层注销（固定炮不受影响）</summary>
+        private void ReleaseCombatMounts()
+        {
+            if (_auto == null) return;
+            _auto.UnregisterMount(topSlotId);
+            _auto.UnregisterMount(frontSlotId);
+            foreach (var id in _combatRacks) _auto.UnregisterMount(id);
+            _combatRacks.Clear();
+            _rocketCombatLevel = -1;
+            _ramCombatLevel = -1;
+        }
+
+        /// <summary>单个弩架：外观装上/卸下的同时，向 AutoWeapon 注册/注销对应战斗挂点</summary>
+        private void SyncOneRack(string rackId, bool active, int side)
+        {
+            if (active)
+            {
+                bool visualChanged = _weapons != null && _weapons.Equip(rackId, WeaponCatalog.Crossbow);
+                if (visualChanged || !_combatRacks.Contains(rackId))
+                {
+                    _auto?.RegisterMount(rackId, WeaponDef.Crossbow(side),
+                        () => _weapons != null ? _weapons.InstanceOf(rackId) : null);
+                    _combatRacks.Add(rackId);
+                }
+            }
+            else if (_weapons != null && _weapons.Unequip(rackId))
+            {
+                _auto?.UnregisterMount(rackId);
+                _combatRacks.Remove(rackId);
+            }
         }
 
         /// <summary>按装备状态同步车顶火箭炮显隐与等级（商店加装/升级、重开都会经过这里）</summary>
@@ -205,9 +340,58 @@ namespace BattleFortress
             { show = GS.HasRocketLauncher; level = GS.RocketLevel; }
 
             _rocketWantsShow = show;
-            // Equip 同路径自动 no-op、换等级自动换模型、不显示则卸下；挂点内永远只有一件武器
-            if (show) _weapons?.Equip(topSlotId, WeaponCatalog.Rocket(level));
-            else _weapons?.Unequip(topSlotId);
+            // 外观：Equip 同路径 no-op、换等级自动换模型；战斗层：刚装上/等级变化时注册（热更新数值）
+            if (show)
+            {
+                bool visualChanged = _weapons != null && _weapons.Equip(topSlotId, WeaponCatalog.Rocket(level));
+                if (visualChanged || _rocketCombatLevel != level)
+                {
+                    _auto?.RegisterMount(topSlotId, WeaponDef.Rocket(level),
+                        () => _weapons != null ? _weapons.InstanceOf(topSlotId) : null);
+                    _rocketCombatLevel = level;
+                }
+            }
+            else
+            {
+                bool removed = _weapons != null && _weapons.Unequip(topSlotId);
+                if (removed || _rocketCombatLevel >= 0)
+                {
+                    _auto?.UnregisterMount(topSlotId);
+                    _rocketCombatLevel = -1;
+                }
+            }
+        }
+
+        /// <summary>按装备状态同步车头攻城锤（商店加装/升级、重开都会经过这里）</summary>
+        private void SyncRam()
+        {
+            bool show;
+            int level;
+#if UNITY_EDITOR
+            if (debugShowRam) { show = true; level = debugRamLevel; }
+            else
+#endif
+            { show = GS.HasBatteringRam; level = GS.RamLevel; }
+
+            if (show)
+            {
+                bool visualChanged = _weapons != null && _weapons.Equip(frontSlotId, WeaponCatalog.Ram(level));
+                if (visualChanged || _ramCombatLevel != level)
+                {
+                    _auto?.RegisterMount(frontSlotId, WeaponDef.Ram(level),
+                        () => _weapons != null ? _weapons.InstanceOf(frontSlotId) : null);
+                    _ramCombatLevel = level;
+                }
+            }
+            else
+            {
+                bool removed = _weapons != null && _weapons.Unequip(frontSlotId);
+                if (removed || _ramCombatLevel >= 0)
+                {
+                    _auto?.UnregisterMount(frontSlotId);
+                    _ramCombatLevel = -1;
+                }
+            }
         }
 
         /// <summary>按进化阶段切换堡垒外观：四个形态都在场景里，只做显隐</summary>
@@ -237,6 +421,8 @@ namespace BattleFortress
             var p = transform.position;
             Fx.PlayVfx(VfxKeys.RingWave, p.x, p.y + 0.3f, p.z, 2.6f);
             Fx.Shake(0.7f);
+            // 装了攻城锤时，点冲撞按钮同时打出一次前刺（攻城锤自己的冷却没好则只冲撞不突刺）
+            _auto?.TryManual(frontSlotId);
             GameBus.Emit(GameEvents.Float, "冲撞头锤!");
         }
 
@@ -383,7 +569,9 @@ namespace BattleFortress
             if (_cd > 0f) _cd -= dt;
             if (_edgeTipT > 0f) _edgeTipT -= dt;
             SyncTopRocket();    // 先算火箭炮需求，供 dbdp 互斥判断
+            SyncRam();          // 车头攻城锤挂装与战斗挂点同步
             SyncFrontCannon(); // 升级卡/商店/进化解锁后立刻显示，重开后自动隐藏
+            SyncCrossbows();   // 按进化阶段同步两侧弩箭数量
             if (GS.Over || GS.Paused) { _marker?.Hide(); return; }
             _marker?.Tick(dt);
 
@@ -447,6 +635,26 @@ namespace BattleFortress
                 Fx.PlayTrailSmoke(smokePos, GameConfig.TrailScale * sizeMul);
             }
 
+            // 地面车辙：车尾左右各落一个土黄印，位置取自真实行驶轨迹，转弯时轨迹自然弯曲
+            _trackT -= dt;
+            if (_trackT <= 0f)
+            {
+                _trackT = GameConfig.TrackInterval;
+                int stk = Mathf.Clamp(GS.Stage, 0, GameConfig.StageScale.Length - 1);
+                float bodyMul = Mathf.Sqrt(GameConfig.StageScale[stk]); // 体型越大车辙间距/印子越大
+                Vector3 sideVec = new Vector3(-_dir.z, 0f, _dir.x);
+                float sideDist = GameConfig.TrackSide * bodyMul;
+                float backDist = GameConfig.TrackBack * bodyMul;
+                float screenAng = MoveScreenAngle(_dir);
+                float markScale = GameConfig.TrackScale * bodyMul;
+                for (int k = -1; k <= 1; k += 2)
+                {
+                    Vector3 mp = pos - _dir * backDist + sideVec * (k * sideDist);
+                    mp.y = 0.12f;
+                    Fx.PlayTrackMark(mp, screenAng, markScale, GameConfig.TrackStretch);
+                }
+            }
+
             // 朝墙走且已贴边 → 非阻断提示（自动上浮淡出，不暂停游戏；节流防刷屏）
             bool hitX = (_dir.x > 0.01f && pos.x >= half - edgeEps) || (_dir.x < -0.01f && pos.x <= -half + edgeEps);
             bool hitZ = (_dir.z > 0.01f && pos.z >= half - edgeEps) || (_dir.z < -0.01f && pos.z <= -half + edgeEps);
@@ -480,6 +688,16 @@ namespace BattleFortress
                     }
                 }
             }
+        }
+        /// <summary>世界水平方向 → UI 屏幕角度（让车辙长条沿行驶方向；UI 局部 +Y 对齐屏幕移动方向）</summary>
+        private float MoveScreenAngle(Vector3 worldDir)
+        {
+            Camera c = cam != null ? cam : Camera.main;
+            if (c == null || worldDir.sqrMagnitude < 0.0001f) return 0f;
+            Vector3 p0 = transform.position;
+            Vector2 s0 = c.WorldToScreenPoint(p0);
+            Vector2 s1 = c.WorldToScreenPoint(p0 + worldDir);
+            return Vector2.SignedAngle(Vector2.up, s1 - s0);
         }
     }
 }

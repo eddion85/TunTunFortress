@@ -24,6 +24,31 @@ namespace BattleFortress
         public float WanderA;      // 羊游荡朝向
         public float DevourTick;   // 强化吞噬外圈持续伤害结算计时
 
+        // ---- 受击击退（水平速度，米/秒；由 EnemySpawner 每帧积分并衰减，AI 移动之外叠加） ----
+        public float KnockX;
+        public float KnockZ;
+
+        /// <summary>施加一次击退：dir 为归一化水平方向，speed 为初速度（Boss 等大体型应先乘衰减系数）</summary>
+        public void ApplyKnockback(float dirX, float dirZ, float speed)
+        {
+            KnockX = dirX * speed;
+            KnockZ = dirZ * speed;
+        }
+
+        /// <summary>敌人在世界 XZ 平面上的体长（包围盒 X/Z 取大值，用于按体型算击退距离等）</summary>
+        public float WorldLength()
+        {
+            var renderers = GetComponentsInChildren<Renderer>();
+            if (renderers.Length == 0) return 1f;
+            float len = 0f;
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                var s = renderers[i].bounds.size;
+                len = Mathf.Max(len, s.x, s.z);
+            }
+            return len > 0.0001f ? len : 1f;
+        }
+
         // ---- Boss 骨骼动画状态 ----
         public Animator Animator;
         public string AnimClip = "";
@@ -59,6 +84,8 @@ namespace BattleFortress
             WanderT = 0f;
             WanderA = Random.value * Mathf.PI * 2f;
             DevourTick = 0f;
+            KnockX = 0f;
+            KnockZ = 0f;
 
             Dying = false;
             DieT = 0f;

@@ -36,6 +36,23 @@ namespace BattleFortress
                 GameConfig.TrailLife, GameConfig.TrailRise, GameConfig.TrailGrow, GameConfig.TrailAlpha, true);
         }
 
+        /// <summary>地面车辙印：贴地、土黄染色、沿屏幕朝向拉长，走 VfxLayer 独立地面印池</summary>
+        public static void PlayTrackMark(Vector3 pos, float screenAngle, float scale, float stretch)
+        {
+            GameBus.Emit(GameEvents.Vfx, new VfxPayload
+            {
+                url = VfxKeys.SmokePuff,
+                x = pos.x, y = pos.y, z = pos.z,
+                scale = scale,
+                life = GameConfig.TrackLife,
+                rise = 0f, grow = 0f, alpha = GameConfig.TrackAlpha,
+                groundMark = true,
+                tint = GameConfig.TrackColor,
+                angle = screenAngle,
+                stretch = stretch
+            });
+        }
+
         /// <summary>世界空间飘伤害数字（在敌人头顶弹出，比固定屏幕位置更有打击感）</summary>
         public static void PopDmg(Vector3 pos, float dmg, bool big = false)
         {

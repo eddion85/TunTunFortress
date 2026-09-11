@@ -26,6 +26,9 @@ namespace BattleFortress
         private readonly Func<Transform> _socketGetter;   // 当前挂点父节点
         private readonly Func<Transform> _sizeRootGetter; // 测量尺寸用的根（一般是当前形态模型根）
         private readonly float _widthRatio;               // 武器宽度占参考根宽度的比例
+        private readonly Quaternion _localRot;            // 挂点内局部朝向（如左右武器朝外的 ±90°）
+        private readonly int _measureAxis;                // 自动缩放按模型哪根局部轴量长度（0=X 1=Y 2=Z）
+        private readonly Vector3 _axisScale;              // 自动适配后再叠加的各轴倍率（用于只加粗不加长等）
 
         private GameObject _instance;
         private string _currentPath;
@@ -33,12 +36,23 @@ namespace BattleFortress
         /// <summary>当前挂载的武器 Resources 路径；null/空 表示空挂点</summary>
         public string CurrentPath => _currentPath;
         public bool HasWeapon => _instance != null;
+        /// <summary>当前挂载的武器实例根节点（无武器时 null），供战斗层取炮口/播放后坐动画</summary>
+        public Transform Instance => _instance != null ? _instance.transform : null;
 
-        public WeaponMount(Func<Transform> socketGetter, Func<Transform> sizeRootGetter, float widthRatio = 0.5f)
+        public WeaponMount(Func<Transform> socketGetter, Func<Transform> sizeRootGetter,
+            float widthRatio = 0.5f, Vector3 localEuler = default, int measureAxis = 0,
+            Vector3 axisScale = default)
         {
             _socketGetter = socketGetter ?? throw new ArgumentNullException(nameof(socketGetter));
             _sizeRootGetter = sizeRootGetter ?? socketGetter; // 不单独给尺寸根时，直接以挂点所在层级测量
             _widthRatio = Mathf.Clamp(widthRatio, 0.01f, 5f);
+            _localRot = Quaternion.Euler(localEuler);
+            _measureAxis = Mathf.Clamp(measureAxis, 0, 2);
+            // default(0,0,0) 视为不额外缩放；允许某一轴为 0 时该轴回退为 1
+            _axisScale = new Vector3(
+                axisScale.x <= 0f ? 1f : axisScale.x,
+                axisScale.y <= 0f ? 1f : axisScale.y,
+                axisScale.z <= 0f ? 1f : axisScale.z);
         }
 
         /// <summary>
@@ -72,8 +86,8 @@ namespace BattleFortress
             return true;
         }
 
-        /// <summary>卸载当前武器（挂点清空）</summary>
-        public void Unequip() => UnequipInternal();
+        /// <summary>卸载当前武器（挂点清空）；返回 true 表示本次确实卸掉了一件武器</summary>
+        public bool Unequip() => UnequipInternal();
 
         /// <summary>父节点发生切换（如进化换形态）：把现有武器平移到新挂点并重算尺寸</summary>
         public void Rebind()
@@ -88,14 +102,16 @@ namespace BattleFortress
 
         // ---------------- 内部实现 ----------------
 
-        private void UnequipInternal()
+        private bool UnequipInternal()
         {
+            bool had = _instance != null;
             if (_instance != null)
             {
                 UnityEngine.Object.Destroy(_instance);
                 _instance = null;
             }
             _currentPath = null;
+            return had;
         }
 
         /// <summary>贴到挂点原点并自动算尺寸</summary>
@@ -104,17 +120,36 @@ namespace BattleFortress
             var t = _instance.transform;
             t.SetParent(socket, false);
             t.localPosition = Vector3.zero;
-            t.localRotation = Quaternion.identity;
+            t.localRotation = Quaternion.identity; // 量尺寸时先不转，保证按模型自身 X 宽度缩放
             t.localScale = Vector3.one;
 
-            float bodyWidth = MeasureWidth(_sizeRootGetter(), _instance.transform);
-            float weaponWidth = CombinedWidth(_instance.transform);
+            float bodyWidth = MeasureBodyWidth(_sizeRootGetter(), _instance.transform);
+            float weaponWidth = CombinedAxisLength(_instance.transform, _measureAxis);
             if (bodyWidth > 0.000001f && weaponWidth > 0.000001f)
-                t.localScale = Vector3.one * (bodyWidth * _widthRatio / weaponWidth);
+            {
+                float fit = bodyWidth * _widthRatio / weaponWidth;
+                t.localScale = Vector3.Scale(Vector3.one * fit, _axisScale); // 先等比适配，再叠加轴向倍率
+            }
+            t.localRotation = _localRot; // 尺寸算完再转朝向外
+        }
+
+        /// <summary>测量某根节点下所有 Renderer 在指定世界轴（0=X 1=Y 2=Z）上的总长度</summary>
+        public static float CombinedAxisLength(Transform root, int axis)
+        {
+            if (root == null) return 0f;
+            var renderers = root.GetComponentsInChildren<Renderer>();
+            if (renderers.Length == 0) return 0f;
+            float mn = float.MaxValue, mx = float.MinValue;
+            foreach (var r in renderers)
+            {
+                mn = Mathf.Min(mn, r.bounds.min[axis]);
+                mx = Mathf.Max(mx, r.bounds.max[axis]);
+            }
+            return Mathf.Max(0f, mx - mn);
         }
 
         /// <summary>参考根所有激活 Renderer 的世界 X 宽度（排除武器自身，避免换装后越换越大）</summary>
-        private static float MeasureWidth(Transform root, Transform excludeWeapon)
+        public static float MeasureBodyWidth(Transform root, Transform excludeWeapon = null)
         {
             if (root == null) return 0f;
             if (WidthCache.TryGetValue(root, out float cached)) return cached;
@@ -132,20 +167,6 @@ namespace BattleFortress
             float width = any ? Mathf.Max(0f, maxX - minX) : 0f;
             WidthCache[root] = width;
             return width;
-        }
-
-        /// <summary>武器实例（scale=1 时）的世界 X 宽度</summary>
-        private static float CombinedWidth(Transform weaponRoot)
-        {
-            var renderers = weaponRoot.GetComponentsInChildren<Renderer>();
-            if (renderers.Length == 0) return 0f;
-            float minX = float.MaxValue, maxX = float.MinValue;
-            foreach (var r in renderers)
-            {
-                minX = Mathf.Min(minX, r.bounds.min.x);
-                maxX = Mathf.Max(maxX, r.bounds.max.x);
-            }
-            return Mathf.Max(0f, maxX - minX);
         }
 
         private static GameObject LoadPrefab(string resourcesPath)

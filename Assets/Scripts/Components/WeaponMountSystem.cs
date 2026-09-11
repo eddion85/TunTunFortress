@@ -23,11 +23,12 @@ namespace BattleFortress
         /// <param name="socketGetter">当前父节点（允许随形态切换返回不同 Transform）</param>
         /// <param name="sizeRootGetter">自动量尺寸的参考根；为 null 时用挂点自身链</param>
         public WeaponMount Bind(string socketId, Func<Transform> socketGetter,
-            Func<Transform> sizeRootGetter = null, float widthRatio = 0.5f)
+            Func<Transform> sizeRootGetter = null, float widthRatio = 0.5f, Vector3 localEuler = default,
+            int measureAxis = 0, Vector3 axisScale = default)
         {
             if (string.IsNullOrEmpty(socketId)) throw new ArgumentException("socketId 不能为空");
             if (_mounts.TryGetValue(socketId, out var exists)) return exists;
-            var mount = new WeaponMount(socketGetter, sizeRootGetter, widthRatio);
+            var mount = new WeaponMount(socketGetter, sizeRootGetter, widthRatio, localEuler, measureAxis, axisScale);
             _mounts[socketId] = mount;
             return mount;
         }
@@ -38,11 +39,15 @@ namespace BattleFortress
             return TryGet(socketId, out var mount) && mount.Equip(resourcesPath);
         }
 
-        /// <summary>卸下指定挂点的武器</summary>
-        public void Unequip(string socketId)
+        /// <summary>卸下指定挂点的武器；返回 true 表示本次确实卸掉了一件</summary>
+        public bool Unequip(string socketId)
         {
-            if (TryGet(socketId, out var mount)) mount.Unequip();
+            return TryGet(socketId, out var mount) && mount.Unequip();
         }
+
+        /// <summary>某挂点当前武器实例根节点（无武器/未注册返回 null），战斗层据此取炮口</summary>
+        public Transform InstanceOf(string socketId)
+            => TryGet(socketId, out var mount) ? mount.Instance : null;
 
         /// <summary>某挂点当前武器路径（空 = 没装）</summary>
         public string CurrentPath(string socketId)

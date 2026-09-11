@@ -458,9 +458,23 @@ namespace BattleFortress
                     Fx.Shake(GameConfig.Ai.MeleeHitShake);
                 }
 
+                // 受击击退：在 AI 移动之外叠加一段水平速度并线性衰减（攻城锤等近战武器用）
+                if (e.KnockX != 0f || e.KnockZ != 0f)
+                {
+                    p.x += e.KnockX * dt;
+                    p.z += e.KnockZ * dt;
+                    float decay = GameConfig.RamKnockDecel * dt;
+                    e.KnockX = Mathf.MoveTowards(e.KnockX, 0f, decay);
+                    e.KnockZ = Mathf.MoveTowards(e.KnockZ, 0f, decay);
+                }
+
+                // 被击退的短暂窗口内大幅压制自身追击（否则 Boss 边退边追，净位移几乎为 0）
+                float moveSuppress = (e.KnockX != 0f || e.KnockZ != 0f)
+                    ? GameConfig.RamKnockMoveSuppress : 1f;
+
                 float half = GameConfig.ArenaHalf + 4f;
-                p.x = Mathf.Clamp(p.x + tx * sp * dt, -half, half);
-                p.z = Mathf.Clamp(p.z + tz * sp * dt, -half, half);
+                p.x = Mathf.Clamp(p.x + tx * sp * dt * moveSuppress, -half, half);
+                p.z = Mathf.Clamp(p.z + tz * sp * dt * moveSuppress, -half, half);
                 p.y = 0f;
                 e.transform.position = p;
                 FaceDir(e, tx, tz);

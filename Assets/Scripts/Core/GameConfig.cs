@@ -68,6 +68,16 @@ namespace BattleFortress
         public const float TrailAlpha = 1.2f;          // 起始透明度，随后线性淡出
         public const float TrailBack = 1.2f;            // 生成点距车体中心向后的距离（米）
         public const float TrailJitter = 0.22f;         // 生成点横向随机散布（米）
+
+        // ---------------- 地面车辙（移动时车尾左右各一道，沿真实轨迹自然弯曲） ----------------
+        public const float TrackInterval = 0.05f;       // 落印间隔（秒，越小轨迹越连续）
+        public const float TrackLife = 1.1f;            // 单个车辙印存活时间（秒），随后淡出
+        public const float TrackScale = 0.42f;          // 车辙印基础 UI 尺寸
+        public const float TrackStretch = 4.6f;         // 沿行驶方向的拉长倍数（拖成长条，明显长于冒烟团）
+        public const float TrackSide = 0.42f;           // 左右车辙距车体中心的横向距离（米，随体型缩放）
+        public const float TrackBack = 0.55f;           // 车辙印距车体中心向后的距离（米）
+        public const float TrackAlpha = 0.5f;           // 起始不透明度
+        public static readonly Color TrackColor = new Color(0.78f, 0.62f, 0.34f); // 土黄色
         public const int TrailMax = 12;                 // 同屏拖尾烟团上限（独立池，不挤占战斗特效）
 
         // ---------------- 武器 ----------------
@@ -110,6 +120,46 @@ namespace BattleFortress
 
         // ---------------- 正面炮选敌射界 ----------------
         public const float FrontCone = 0.35f;       // 正面炮只打车头正前方锥形（cos 阈值，约 ±70°）
+
+        // ---------------- 车顶火箭炮（Slot_Top，4 级，抛物落地范围爆炸） ----------------
+        public const float RocketRange = 16f;           // 选敌射程（米）
+        public const float RocketBaseCd = 3.2f;         // L0 开火间隔（秒），每升一级减 RocketCdStep
+        public const float RocketCdStep = 0.3f;
+        public const float RocketMinCd = 2.0f;       // 两次发射硬下限（攻速加成再多也不短于 2s）
+        public const float RocketBaseDmg = 16f;         // L0 单发基础伤害，每升一级 +RocketDmgStep
+        public const float RocketDmgStep = 8f;
+        public const float RocketBaseRadius = 2.6f;     // L0 爆炸半径，每升一级 +RocketRadiusStep
+        public const float RocketRadiusStep = 0.3f;
+        public const float RocketShellSpeed = 10f;      // 弹速（米/秒）
+        public const float RocketArcHeight = 6.5f;      // 抛物线拱顶额外高度（出膛先升后落，0=直线下压）
+        public const float RocketShellScale = 1.2f;     // 弹体模型缩放
+        public const float RocketRecoil = 0.12f;        // 开火后坐位移（武器局部 Y，米）
+        public const float RocketRecoilSpring = 0.14f;  // 后坐回位缓动时间（秒，越小回弹越快）
+
+        // ---------------- 车侧弩箭（Slot_Side_Left/Right，直射单体） ----------------
+        public const float CrossbowRange = 15f;         // 选敌射程（米）
+        public const float CrossbowCd = 1.8f;           // 每把弩开火间隔（秒）
+        public const float CrossbowMinCd = 1.2f;        // 两次发射硬下限（秒）
+        public const float CrossbowDmg = 9f;            // 每支弩箭基础伤害
+        public const float CrossbowShellSpeed = 26f;    // 弩箭弹速（米/秒，快于炮弹）
+        public const float CrossbowShellScale = 0.5f;   // 弹体缩放（小而快）
+        public const float CrossbowRecoil = 0.08f;      // 开火后坐位移（武器局部 -Y，即朝车内回缩）
+        public const float CrossbowRecoilSpring = 0.1f;
+
+        // ---------------- 车头攻城锤（Slot_Front，4 阶，直线近战突刺，主打 Boss） ----------------
+        public const float RamRange = 12f;               // 攻击距离 = 火箭炮射程一半（米）
+        public const float RamDmgGrow = 1.5f;           // 每升一阶伤害 ×1.5（L0 与火箭炮 L0 同伤）
+        public const float RamCd = 2.2f;                // 突刺间隔（秒）
+        public const float RamMinCd = 1.6f;             // 突刺硬下限（秒）
+        public const float RamFanHalfAngle = 45f;       // 突刺扇形：车头左右各 45°（总张角 90°）
+        public const float RamHalfWidth = 1.6f;         // 贴身最小半宽（米）：防止贴脸时扇形尖点漏判大体型
+        public const float RamLengthRatio = 0.55f;      // 攻城锤长度占车体宽度比例（自动缩放）
+        public const float RamThickMul = 2.0f;          // 粗细倍率：只加粗 X/Z（垂直长轴方向），长度不变
+        public const float RamThrustMul = 0.8f;        // 突刺前冲距离 = 自身长度 × 该值（要求 >1/2）
+        public const float RamThrustTime = 0.28f;       // 一次前刺+回位总时长（秒）
+        public const float RamKnockDecel = 10f;         // 击退减速（米/秒²，越大回位越快）
+        public const float RamKnockMoveSuppress = 0f;   // 被击退期间自身追击完全停住（0=原地被顶退，不往前挪）
+        public static readonly Vector3 RamLocalEuler = new Vector3(90f, 0f, 0f); // 模型长轴 +Y 转到车头 +Z
 
         // ---------------- 玩家冲撞 ----------------
         public const float DashTime = 0.34f;        // 冲撞持续秒数

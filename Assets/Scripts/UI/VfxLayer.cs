@@ -68,6 +68,9 @@ namespace BattleFortress
             public float growEnd;     // 末态扩散倍率：尺寸从 scale 涨到 scale*(1+growEnd)
             public float startAlpha;  // 起始透明度，随后线性淡出
             public int frame = -1;
+            public Color tint = Color.white; // 染色（地面车辙用土黄）
+            public float angle;              // 固定屏幕朝向（度）
+            public float stretch = 1f;       // 沿朝向拉长倍数
         }
 
         private class Bar
@@ -89,6 +92,9 @@ namespace BattleFortress
         private readonly List<Image> _fxPool = new List<Image>();
         private readonly List<FxItem> _trailItems = new List<FxItem>();
         private readonly List<Image> _trailPool = new List<Image>();
+        private readonly List<FxItem> _trackItems = new List<FxItem>(); // 地面车辙印独立池
+        private readonly List<Image> _trackPool = new List<Image>();
+        private const int MaxTrack = 40;
         private readonly List<Bar> _bars = new List<Bar>();
         private readonly List<Image> _shadows = new List<Image>();
         private readonly List<DmgText> _dmgs = new List<DmgText>();
@@ -150,6 +156,10 @@ namespace BattleFortress
                 if (_trailItems[i] != null && _trailItems[i].img != null) RecycleFx(_trailItems[i].img, _trailPool);
             _trailItems.Clear();
 
+            for (int i = 0; i < _trackItems.Count; i++)
+                if (_trackItems[i] != null && _trackItems[i].img != null) RecycleFx(_trackItems[i].img, _trackPool);
+            _trackItems.Clear();
+
             for (int i = 0; i < _bars.Count; i++)
                 if (_bars[i] != null && _bars[i].root != null) _bars[i].root.SetActive(false);
             _hurt = 0f;
@@ -194,6 +204,7 @@ namespace BattleFortress
             // 特效推进（战斗特效 + 移动拖尾两条独立列表）
             StepFxList(_items, _fxPool, dt);
             StepFxList(_trailItems, _trailPool, dt);
+            StepFxList(_trackItems, _trackPool, dt);
         }
     }
 }
