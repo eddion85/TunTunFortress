@@ -30,15 +30,10 @@ namespace BattleFortress
                 GameBus.Emit(GameEvents.Boss, false);
             }
 
-            // 经验：羊在 expMin~expMax 间随机，其余敌种取固定 exp，Boss 用 Boss 表
-            float exp;
-            if (e.Kind != null && e.Kind.expMax > e.Kind.expMin)
-                exp = e.Kind.expMin + Random.value * (e.Kind.expMax - e.Kind.expMin);
-            else
-                exp = e.Kind != null ? e.Kind.exp : 0f;
-
-            GS.AddExp(e.IsBoss ? EnemyDefs.Boss.Exp : exp);
-            GS.AddKill(e.Kind != null ? e.Kind.prog : 0, e.IsBoss);
+            // 经验/进度统一从 EnemyDef 取（配了浮动区间就随机，Boss 用自身定义）
+            float exp = e.Def != null ? e.Def.RollExp() : 0f;
+            GS.AddExp(exp);
+            GS.AddKill(e.Def != null ? e.Def.Prog : 0, e.IsBoss);
 
             var ep = e.transform.position;
             // 小怪死亡只播一层爆炸，Boss 才叠满层次
@@ -51,7 +46,7 @@ namespace BattleFortress
             }
             Fx.Shake(e.IsBoss ? GameConfig.Ai.BossDeathShake : GameConfig.Ai.MobDeathShake);
 
-            DropSystem.SpawnDrop(ep.x, ep.z, e.Kind, e.IsBoss);
+            DropSystem.SpawnDrop(ep.x, ep.z, e.Def, e.IsBoss);
 
             // 非 Boss 立即回池；Boss 有骨骼动画的延迟到 die 播完（由 EnemySpawner 主循环回收），
             // Boss 没有 Animator 时同样立即回池（与原 Devour 行为一致）

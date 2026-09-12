@@ -1,73 +1,11 @@
 namespace BattleFortress
 {
-    /// <summary>
-    /// 敌人种类定义 [策划书 4.4]
-    /// </summary>
-    public class EnemyKind
-    {
-        public string key;
-        public float hp;
-        public float dmg;
-        public float exp;
-        public int prog;          // 吞噬进度贡献
-        public float speed;
-        public int size;          // 体积档位，用于体积压制判定
-        public bool flee;         // 是否逃跑
-        public bool wander;       // 是否游荡（羊）
-        public float scale;       // 模型缩放
-        public bool ranged;       // 远程（弓箭手）
-        public bool flank;        // 绕后（骑兵）
-        public float expMin;      // 经验下限（羊）
-        public float expMax;      // 经验上限（羊）
-    }
+    // 敌人/Boss 的种类定义已迁移到 EnemyCatalog.cs（EnemyDef + EnemyCatalog，配置驱动、可扩展）。
+    // 本文件只保留拾取物数值与音效/特效资源路径表。
 
-    /// <summary>敌人表 / Boss 表 / 拾取物表（由 config.ts 1:1 移植）</summary>
+    /// <summary>拾取物数值 [策划书 8 道具]</summary>
     public static class EnemyDefs
     {
-        public static readonly EnemyKind[] KINDS =
-        {
-            // 羊：HP 1~3、伤害 0、经验 4~8 [策划书 4.4]
-            new EnemyKind { key = "sheep",  hp = 3,  dmg = 0, exp = 6,  expMin = 4, expMax = 8,  prog = 2, speed = 2.4f, size = 0, flee = true,  wander = true, scale = 0.9f  },
-            // 奶牛 [设计：资源包新增敌种]
-            new EnemyKind { key = "cow",    hp = 8,  dmg = 4, exp = 11, prog = 5, speed = 2.6f, size = 1, flee = false, scale = 1.1f  },
-            // 农夫：HP 5、伤害 3、经验 7 [策划书 4.4]
-            new EnemyKind { key = "farmer", hp = 5,  dmg = 3, exp = 7,  prog = 4, speed = 2.6f, size = 1, flee = false, scale = 1.0f  },
-            // 弓箭手：HP 9、伤害 5、经验 14、远程 [策划书 4.4]
-            new EnemyKind { key = "archer", hp = 9,  dmg = 5, exp = 14, prog = 6, speed = 2.4f, size = 1, flee = false, scale = 1.0f, ranged = true },
-            // 骑兵：HP 14、伤害 7、经验 18、绕后 [策划书 4.4]
-            new EnemyKind { key = "rider",  hp = 14, dmg = 7, exp = 18, prog = 8, speed = 3.9f, size = 2, flee = false, scale = 1.15f, flank = true }
-        };
-
-        public static EnemyKind KindByKey(string k)
-        {
-            for (int i = 0; i < KINDS.Length; i++)
-                if (KINDS[i].key == k) return KINDS[i];
-            return KINDS[0];
-        }
-
-        /// <summary>敌种索引，用于 maxTier 解锁判定（顺序同 KINDS，未找到回退 0）</summary>
-        public static int IndexOf(string key)
-        {
-            for (int i = 0; i < KINDS.Length; i++)
-                if (KINDS[i].key == key) return i;
-            return 0;
-        }
-
-        // ---------------- Boss [设计：GDD 无细则，按敌人数值放大] ----------------
-        public static class Boss
-        {
-            public const float Hp = 320f;
-            public const float Dmg = 14f;
-            public const float Exp = 120f;
-            public const int Prog = 40;
-            public const float Speed = 2.6f;
-            public const float Scale = 2.0f;
-            public const float SlamCd = 4.5f;
-            public const float SlamRadius = 6f;
-            public const float Phase2At = 0.5f;   // 血量低于 50% 进入二阶段提速
-        }
-
-        // ---------------- 拾取物 [策划书 8 道具] ----------------
         public static class Pickups
         {
             public const float HealthSmall = 20f;

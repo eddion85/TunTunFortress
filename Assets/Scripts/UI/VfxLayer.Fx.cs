@@ -23,6 +23,21 @@ namespace BattleFortress
             return arr;
         }
 
+        private RectTransform _backRoot;
+        private RectTransform BackRoot()
+        {
+            if (_backRoot != null) return _backRoot;
+            var go = new GameObject("FxBackLayer", typeof(RectTransform));
+            _backRoot = go.transform as RectTransform;
+            _backRoot.SetParent(container, false);
+            _backRoot.anchorMin = Vector2.zero;
+            _backRoot.anchorMax = Vector2.one;
+            _backRoot.offsetMin = Vector2.zero;
+            _backRoot.offsetMax = Vector2.zero;
+            _backRoot.SetAsFirstSibling();
+            return _backRoot;
+        }
+
         private Image ObtainFx(List<Image> pool)
         {
             Image img;
@@ -40,6 +55,7 @@ namespace BattleFortress
                 img.preserveAspect = true;
             }
             img.gameObject.SetActive(true);
+            img.enabled = true;
             img.color = Color.white;
             img.transform.localRotation = Quaternion.identity;
             img.rectTransform.anchoredPosition = Vector2.zero;
@@ -50,7 +66,7 @@ namespace BattleFortress
         private void RecycleFx(Image img, List<Image> pool)
         {
             if (img == null) return;
-            img.gameObject.SetActive(false);
+            if (img.enabled) img.enabled = false;
             if (pool.Count < 24) pool.Add(img);
             else Destroy(img.gameObject);
         }
@@ -96,7 +112,8 @@ namespace BattleFortress
 
             var img = ObtainFx(pool);
             ApplyFxMaterial(img, p.url);
-            if (p.trail || p.groundMark) img.transform.SetAsFirstSibling(); // 扬尘/车辙压在战斗特效/玩家下层
+            Transform wantParent = (p.trail || p.groundMark) ? BackRoot() : container;
+            if (img.transform.parent != wantParent) img.transform.SetParent(wantParent, false);
             img.sprite = frames[0];
 
             bool sheet = frames.Length > 1;
@@ -153,10 +170,10 @@ namespace BattleFortress
                 Vector2 local;
                 if (!Project(it.world, out local))
                 {
-                    img.gameObject.SetActive(false);
+                    if (img.enabled) img.enabled = false;
                     continue;
                 }
-                img.gameObject.SetActive(true);
+                if (!img.enabled) img.enabled = true;
                 img.rectTransform.anchoredPosition = new Vector2(local.x, local.y - t * it.rise);
 
                 float grow = 1f + t * it.growEnd;

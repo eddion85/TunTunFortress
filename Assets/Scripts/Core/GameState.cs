@@ -176,14 +176,10 @@ namespace BattleFortress
             return GameConfig.DevourRadius * DevourMul * GameConfig.StageScale[Stage] * boost;
         }
 
-        /// <summary>体积压制伤害系数 [策划书 4.1]</summary>
-        public static float SizeFactor(int targetSize)
-        {
-            int diff = Stage - targetSize;
-            if (diff > 0) return 1f + Mathf.Min(GameConfig.SizeBonusCap, diff * GameConfig.SizeBonusPerTier);
-            if (diff < 0) return GameConfig.SizeWeakFactor;
-            return 1f;
-        }
+        /// <summary>
+        /// 体积压制系数：现规则进阶只放大车体、不再提升武器伤害（伤害只看武器等级/商店/元成长），恒为 1。
+        /// </summary>
+        public static float SizeFactor(int targetSize) => 1f;
 
         public static void AddCombo()
         {

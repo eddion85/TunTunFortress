@@ -13,11 +13,11 @@ namespace BattleFortress
         public float spdMul;       // 敌人移速倍率
         public float spawnInterval;// 当前刷怪间隔（秒）
         public int burst;          // 每次刷怪同时生成的份数
-        public int maxTier;        // 当前已解锁的最强敌种索引（对应 EnemyDefs.KINDS）
+        public int maxTier;        // 当前已解锁的最强敌种索引（对应 EnemyCatalog.Mobs）
         public string phase;       // 当前节奏阶段名（HUD 显示）
     }
 
-    /// <summary>敌种出现权重波段：到达 time 秒后采用该组权重（顺序对应 EnemyDefs.KINDS）</summary>
+    /// <summary>敌种出现权重波段：到达 time 秒后采用该组权重（顺序对应 EnemyCatalog.Mobs）</summary>
     public class MobBand
     {
         public float time;
@@ -56,7 +56,22 @@ namespace BattleFortress
         public const float DevourCd = 1f;             // 强化吞噬冷却（只防连点，金币才是主要门槛）
         public const int DevourCoinCost = 30;         // 强化吞噬消耗金币（广告承接点）
 
-        public const float ArenaHalf = 29f;           // 与可见地面对齐，留 2m 视觉余量
+        public const float ArenaHalf = 29f;           // 有边界时的半边长（与可见地面对齐，留 2m 视觉余量）
+        public static readonly bool ArenaBounded = false;       // 是否限制活动边界：false=无边界自由移动
+        public const float MiniMapViewRange = 40f;     // 无边界时小地图动态窗口半径（世界米，玩家恒在中心）
+        // 无限地面：玩家开出原始地面后，循环地砖跟随平移（视觉上走不到头；纯运行时生成不改场景）
+        public static readonly bool GroundFollow = true;  // 是否启用跟随地砖
+        public const float GroundTileSize = 50f;          // 单块地砖边长（米）
+        public const int GroundTileRadius = 2;            // 玩家周围铺 (2r+1)² 块
+        public const float GroundY = -0.05f;              // 地砖高度（略低于原地面避免闪烁）
+
+        /// <summary>按配置把世界坐标钳制在竞技场内；关闭边界时原样返回</summary>
+        public static float ClampArena(float v, float expand = 0f)
+        {
+            if (!ArenaBounded) return v;
+            float h = ArenaHalf + expand;
+            return Mathf.Clamp(v, -h, h);
+        }
 
         // ---------------- 移动冒烟拖尾 [设计]：车尾持续吐烟，独立对象池 ----------------
         public const float TrailInterval = 0.10f;       // 普通移动吐烟间隔（秒/团）
@@ -153,7 +168,8 @@ namespace BattleFortress
         public const float RamMinCd = 1.6f;             // 突刺硬下限（秒）
         public const float RamFanHalfAngle = 45f;       // 突刺扇形：车头左右各 45°（总张角 90°）
         public const float RamHalfWidth = 1.6f;         // 贴身最小半宽（米）：防止贴脸时扇形尖点漏判大体型
-        public const float RamLengthRatio = 0.55f;      // 攻城锤长度占车体宽度比例（自动缩放）
+        public const float EquipSizeRatio = 1f / 3f;    // 所有装配武器统一为「当前车体」对应轴长度的 1/3
+        public const float RamLengthRatio = EquipSizeRatio; // 兼容旧名（攻城锤长度比例）
         public const float RamThickMul = 2.0f;          // 粗细倍率：只加粗 X/Z（垂直长轴方向），长度不变
         public const float RamThrustMul = 0.8f;        // 突刺前冲距离 = 自身长度 × 该值（要求 >1/2）
         public const float RamThrustTime = 0.28f;       // 一次前刺+回位总时长（秒）
@@ -189,6 +205,44 @@ namespace BattleFortress
             public const float ArrowSpeed = 14f;        // 箭飞行速度
             public const float ArrowLife = 2.5f;        // 箭最长存活
             public const float ArrowHitRadius = 1.2f;   // 箭命中玩家半径
+
+// 侧炮车（Agent_SideShooter：AttackModules 下左右各 4 个炮塔）
+            public const float EnemySideCannonCd = 2.8f;        // 齐射间隔（秒）
+            public const float EnemySideCannonRange = 13f;      // 开火最大距离
+            public const float EnemySideCannonSpread = 8f;      // 炮口散射总夹角（度）
+            public const float EnemySideCannonProjSpeed = 12f;  // 炮弹速度
+            public const float EnemySideCannonProjLife = 3f;    // 炮弹存活
+            public const float EnemySideCannonProjScale = 0.55f;// 炮弹缩放
+            public const float EnemySideCannonMuzzleHeight = 1f;// 无炮口节点时的发射高度
+            public const string SideShooterMuzzleNode = "AttackInstantiationPoint"; // 炮口节点名（同名全部收集）
+            public const string SideShooterTurretNode = "AttackModule_(Turret)";    // 转向玩家的炮塔节点名
+            public const string SideShooterBarrelNode = "Cannon_Holder";            // 后坐炮管节点名
+            public const float SideShooterRecoilDist = 0.25f;  // 开火后坐距离（米，沿炮管本地 -Z）
+            public const float SideShooterRecoilTime = 0.22f;  // 后坐回位时长（秒）
+            // 侧炮车走位（EnemyAi.SideCombat：绕到玩家并排侧位再开火）
+            public const float SideShooterKeepDist = 7f;    // 与玩家保持的并排距离（米）
+            public const float SideShooterArriveDist = 1.6f;// 进入侧位多少米内视为到位（减速停住）
+            public const float SideShooterHoldSpeedMul = 0.15f; // 到位后移速倍率（几乎停住横在玩家侧面）
+            public const float SideShooterFlipEvery = 7f;   // 多少秒切换一次左右侧（0=不换）
+            public const float SideShooterBroadside = 40f;  // 车身与玩家夹角偏离正侧位不超过该角度才开火
+            // 通用炮塔（AttackModule 朝炮：迫击炮/小炮塔/弓箭塔）
+            public const string EnemyMuzzleNode = "AttackInstantiationPoint"; // 炮口节点名（同名全部收集）
+            public const string EnemyTurretNode = "AttackModule_(Turret)";    // 转向玩家的炮塔节点名
+            public const string EnemyBarrelNode = "Cannon_Holder";           // 后坐炮管节点名（弓箭塔没有就找不到，自动空转）
+            public const float EnemyTurretMuzzleHeight = 1f;
+            public const float EnemyTurretRecoilDist = 0.22f;
+            public const float EnemyTurretRecoilTime = 0.2f;
+
+            // 轮子滚动（EnemyWheelRig）
+            public const string EnemyWheelsNode = "Wheels";  // 车轮根节点名
+            public const int EnemyWheelSpinSign = 1;         // 滚动方向反了就改成 -1
+            public const string EnemyBarNode = "HPBar_Bar";  // 模型自带血条锚点（血条贴这里显示）
+            // 轮式敌人移动时的车轮轨迹（复用玩家车辙印 Fx.PlayTrackMark）
+            public static readonly bool EnemyTrackEnabled = true;  // 是否留车轮轨迹
+            public const float EnemyTrackDist = 1.0f;    // 每走多少米落一组印（越小越连续，怪多时别太小避免压 UI 池）
+            public const float EnemyTrackScale = 0.8f;  // 单印 UI 尺寸
+            public const float EnemyTrackStretch = 8.0f; // 沿行驶方向拉长倍数
+            public const float EnemyTrackY = 0.08f;      // 贴地高度
 
             // 骑兵绕侧
             public const float FlankBreakDist = 6f;     // 小于该距离改为直冲
@@ -325,19 +379,19 @@ namespace BattleFortress
             public const float SpdGrow = 1.02f;             // 小兵移速每 30s ×1.02（放缓，避免后期跑不过来）
             public const float SpdCap = 1.2f;               // 小兵移速倍率上限
 
-            // ---------- 敌种按存活时间解锁（下标对应 EnemyDefs.KINDS：羊/牛/农夫/弓/骑）----------
-            public static readonly float[] TierUnlock = { 0f, 12f, 30f, 55f, 85f };
+            // ---------- 敌种按存活时间解锁（下标对应 EnemyCatalog.Mobs：羊/牛/农夫/弓/骑）----------
+            public static readonly float[] TierUnlock = { 0f, 12f, 30f, 55f, 65f, 90f, 0f, 8f, 45f, 60f, 72f }; // 6/7=车辆小怪 8/9/10=中型炮塔
 
             // ---------- 敌种出现权重波段（到达对应秒数后切换，未解锁的种自动屏蔽）----------
             public static readonly MobBand[] MobTable =
             {
-                new MobBand(0f,   10, 0, 0, 0, 0),
-                new MobBand(12f,  6, 4, 0, 0, 0),
-                new MobBand(30f,  4, 3, 3, 0, 0),
-                new MobBand(55f,  3, 2, 3, 2, 0),
-                new MobBand(85f,  2, 2, 2, 2, 2),
-                new MobBand(130f, 2, 1, 2, 2, 3),
-                new MobBand(190f, 1, 1, 2, 2, 4),
+                new MobBand(0f,   10, 0, 0, 0, 0, 0, 5, 4, 0, 0, 0),
+                new MobBand(12f,  6, 4, 0, 0, 0, 0, 4, 3, 0, 0, 0),
+                new MobBand(30f,  4, 3, 3, 0, 0, 0, 3, 2, 0, 0, 0),
+                new MobBand(55f,  3, 2, 3, 2, 0, 0, 2, 2, 0, 1, 1),
+                new MobBand(85f,  2, 2, 2, 2, 2, 0, 1, 1, 2, 1, 2),
+                new MobBand(130f, 2, 1, 2, 2, 3, 2, 1, 1, 2, 2, 2),
+                new MobBand(190f, 1, 1, 2, 2, 4, 3, 1, 1, 2, 2, 3),
             };
 
             // ---------- HUD 节奏阶段名 ----------

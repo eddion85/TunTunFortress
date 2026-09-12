@@ -127,6 +127,10 @@ namespace BattleFortress
             float weaponWidth = CombinedAxisLength(_instance.transform, _measureAxis);
             if (bodyWidth > 0.000001f && weaponWidth > 0.000001f)
             {
+
+
+
+                // 车宽与武器长都在挂点后的世界空间测量，挂点缩放自动抵消；Rebind 重算后武器始终=当前车体×比例
                 float fit = bodyWidth * _widthRatio / weaponWidth;
                 t.localScale = Vector3.Scale(Vector3.one * fit, _axisScale); // 先等比适配，再叠加轴向倍率
             }

@@ -4,40 +4,39 @@ using UnityEngine;
 namespace BattleFortress
 {
     /// <summary>
-    /// 敌人生成调度 + 主循环驱动：刷怪/Boss 时间表、箭矢模拟、逐帧驱动 AI 与近身攻击。
-    /// 移动决策见 EnemySteer，击杀奖励结算见 KillKit，伤害结算见 DamageKit——
-    /// 本类只做「什么时候刷、每帧让谁做什么」，新增敌种/行为时优先扩展这些协作类。
+    /// 敌人生成调度 + 主循环驱动：刷怪/Boss 时间表、投射物模拟、逐帧驱动 AI 与攻击。
+    /// 敌人「是什么」（数值/模型/动画/AI/攻击）全部由 EnemyCatalog 里的 EnemyDef 决定：
+    /// 走位看 EnemySteer，攻击看 EnemyCombat，本类只做「什么时候刷、每帧按什么顺序驱动」。
+    /// 新增敌种/Boss/攻击效果只改 EnemyCatalog / EnemyCombat + GameConfig，不需要改本类。
     /// </summary>
     public class EnemySpawner : MonoBehaviour
     {
         [Header("引用")]
         [SerializeField] private Transform player;
 
-        [Header("敌人预制体")]
+        [Header("敌人预制体（可选兜底：正常由 EnemyDef.PrefabPath 从 Resources 加载）")]
         [SerializeField] private GameObject tplSheep;
         [SerializeField] private GameObject tplCow;
         [SerializeField] private GameObject tplFarmer;
         [SerializeField] private GameObject tplArcher;
         [SerializeField] private GameObject tplRider;
+        [SerializeField] private GameObject tplBoss;
 
-        [Header("投射物 / Boss")]
-        [SerializeField] private GameObject tplArrow;
-        [SerializeField] private GameObject tplBoss;   // 战争坦克
-
-        [SerializeField] private float arrowHeight = 1f;
-
-        private readonly Dictionary<string, GameObject> _tpl = new Dictionary<string, GameObject>();
+        private readonly Dictionary<string, GameObject> _tplCache = new Dictionary<string, GameObject>();
+        private readonly Dictionary<string, GameObject> _legacy = new Dictionary<string, GameObject>();
         private float _timer = GameConfig.Survival.SpawnFirstDelay;
         private readonly List<float> _spawnStamps = new List<float>(); // 普通兵出生时间戳（滚动窗口限流）
 
         // ---------------- 生命周期 ----------------
         private void Awake()
         {
-            _tpl["sheep"] = tplSheep;
-            _tpl["cow"] = tplCow;
-            _tpl["farmer"] = tplFarmer;
-            _tpl["archer"] = tplArcher;
-            _tpl["rider"] = tplRider;
+            // 旧场景槽位作为 Resources 缺失时的兜底，不再是主路径
+            _legacy["sheep"] = tplSheep;
+            _legacy["cow"] = tplCow;
+            _legacy["farmer"] = tplFarmer;
+            _legacy["archer"] = tplArcher;
+            _legacy["rider"] = tplRider;
+            _legacy["boss_tank"] = tplBoss;
         }
 
         private void OnEnable()
@@ -59,6 +58,21 @@ namespace BattleFortress
                 var pf = FindObjectOfType<PlayerFortress>();
                 if (pf != null) player = pf.transform;
             }
+        }
+
+        /// <summary>按定义取模板：优先 Resources 路径，缺失时回退旧 Inspector 槽位（带缓存）</summary>
+        private GameObject GetTemplate(EnemyDef def)
+        {
+            if (def == null) return null;
+            if (_tplCache.TryGetValue(def.Key, out var cached)) return cached;
+
+            GameObject tpl = null;
+            if (!string.IsNullOrEmpty(def.PrefabPath))
+                tpl = Resources.Load<GameObject>(def.PrefabPath);
+            if (tpl == null) _legacy.TryGetValue(def.Key, out tpl);
+
+            _tplCache[def.Key] = tpl;
+            return tpl;
         }
 
         private void ClearAll(object payload)
@@ -121,38 +135,39 @@ namespace BattleFortress
 
         // ---------------- 刷怪 ----------------
         /// <summary>
-        /// 按配置权重表选怪：权重来自 GameConfig.Survival.MobTable（时间波段），
-        /// 超过当前解锁档位 maxTier 的敌种权重清零，全部为 0 时退回羊。
+        /// 按配置权重表选怪：权重来自 GameConfig.Survival.MobTable（时间波段，下标对应 EnemyCatalog.Mobs），
+        /// 超过当前解锁档位 maxTier 的敌种权重清零，全部为 0 时退回第一个。
         /// </summary>
-        private EnemyKind PickKind()
+        private EnemyDef PickKind()
         {
             var profile = GS.Profile();
             var band = GameConfig.MobBandAt(GS.Elapsed);
+            var mobs = EnemyCatalog.Mobs;
             int total = 0;
-            for (int i = 0; i < EnemyDefs.KINDS.Length; i++)
+            for (int i = 0; i < mobs.Length; i++)
             {
                 int w = (i < band.w.Length && i <= profile.maxTier) ? band.w[i] : 0;
                 total += w;
             }
-            if (total <= 0) return EnemyDefs.KINDS[0];
+            if (total <= 0) return mobs[0];
 
             int roll = Random.Range(0, total);
-            for (int i = 0; i < EnemyDefs.KINDS.Length; i++)
+            for (int i = 0; i < mobs.Length; i++)
             {
                 int w = (i < band.w.Length && i <= profile.maxTier) ? band.w[i] : 0;
                 roll -= w;
-                if (roll < 0) return EnemyDefs.KINDS[i];
+                if (roll < 0) return mobs[i];
             }
-            return EnemyDefs.KINDS[0];
+            return mobs[0];
         }
 
-        private EnemyUnit SpawnAt(EnemyKind kind, float x, float z)
+        private EnemyUnit SpawnAt(EnemyDef def, float x, float z)
         {
-            GameObject prefab;
-            if (!_tpl.TryGetValue(kind.key, out prefab) || prefab == null) return null;
+            GameObject prefab = GetTemplate(def);
+            if (prefab == null) return null;
 
             var go = ObjectPool.Spawn(prefab, new Vector3(x, 0f, z), Quaternion.identity, transform);
-            float sc = kind.scale;
+            float sc = def.Scale;
             go.transform.localScale = new Vector3(sc, sc, sc);
 
             // 血量倍率完全由时间难度配置推导
@@ -160,7 +175,24 @@ namespace BattleFortress
 
             var unit = go.GetComponent<EnemyUnit>();
             if (unit == null) unit = go.AddComponent<EnemyUnit>();
-            unit.Init(kind, false, hpMul);
+            unit.Init(def, def.IsBoss, hpMul);
+
+            // 攻击挂点表现（炮塔转向/炮管后坐/隐藏自带 UI），没有对应节点时自动空转
+            var rig = go.GetComponent<EnemyAttackRig>();
+            if (rig == null) rig = go.AddComponent<EnemyAttackRig>();
+            rig.Setup(def.Combat);
+
+            // 车轮滚动（模型有 Wheels 节点且定义开启时）
+            if (def.HasWheels)
+            {
+                var wheels = go.GetComponent<EnemyWheelRig>();
+                if (wheels == null) wheels = go.AddComponent<EnemyWheelRig>();
+                wheels.Setup(GameConfig.Ai.EnemyWheelsNode, GameConfig.Ai.EnemyWheelSpinSign, def.Scale);
+            }
+
+            // 血条锚点：优先贴模型自带 HPBar_Bar，找不到时血条系统按固定头顶高度兜底
+            unit.BarAnchor = RigNodes.FindFirst(go.transform, GameConfig.Ai.EnemyBarNode);
+
             Registry.Enemies.Add(unit);
             return unit;
         }
@@ -171,45 +203,46 @@ namespace BattleFortress
             if (MobCount() >= GameConfig.Survival.MobCap) return;
             if (WindowSpawnBlocked()) return; // 30s 滚动窗口出生数量上限
             if (Registry.Enemies.Count >= GameConfig.MaxUnits || player == null) return;
-            var kind = PickKind();
+            var def = PickKind();
             Vector3 pp = player.position;
             float ang = Random.value * Mathf.PI * 2f;
             float dist = GameConfig.Ai.SpawnRingMin + Random.value * GameConfig.Ai.SpawnRingJitter;
-            float half = GameConfig.ArenaHalf;
-            float x = Mathf.Clamp(pp.x + Mathf.Cos(ang) * dist, -half, half);
-            float z = Mathf.Clamp(pp.z + Mathf.Sin(ang) * dist, -half, half);
-            if (SpawnAt(kind, x, z) != null) _spawnStamps.Add(GS.Elapsed);
+            float x = GameConfig.ClampArena(pp.x + Mathf.Cos(ang) * dist);
+            float z = GameConfig.ClampArena(pp.z + Mathf.Sin(ang) * dist);
+            if (SpawnAt(def, x, z) != null) _spawnStamps.Add(GS.Elapsed);
         }
 
-        /// <summary>Boss 出场：使用专属战争坦克模型；强度随存活时间成长（配置驱动）。slot=同屏序号，多只时环形落位</summary>
+        /// <summary>Boss 出场：种类/模型/数值/动画全部来自 EnemyCatalog.BossAt；强度随存活时间成长（配置驱动）。slot=同屏序号，多只时环形落位</summary>
         private void SpawnBoss(int slot)
         {
             if (player == null) return;
 
-            Vector3 pp = player.position;
-            // Boss 复用骑兵的战斗数值/行为，但用专属坦克模型
-            var kind = EnemyDefs.KindByKey("rider");
-            GameObject prefab = tplBoss != null ? tplBoss : tplRider;
+            EnemyDef def = EnemyCatalog.BossAt(GS.Elapsed);
+            GameObject prefab = GetTemplate(def);
             if (prefab == null) return;
 
             GS.BossAlive = true;
 
             // 多只 Boss 沿玩家外圈不同方向落位，避免叠在一起
+            Vector3 pp = player.position;
             float ang = -Mathf.PI / 2f + slot * (Mathf.PI * 2f / Mathf.Max(2, GameConfig.Survival.BossCountMax));
             float ring = GameConfig.Ai.BossSpawnRing;
-            float bx = Mathf.Clamp(pp.x + Mathf.Cos(ang) * ring, -GameConfig.ArenaHalf, GameConfig.ArenaHalf);
-            float bz = Mathf.Clamp(pp.z + Mathf.Sin(ang) * ring, -GameConfig.ArenaHalf, GameConfig.ArenaHalf);
+            float bx = GameConfig.ClampArena(pp.x + Mathf.Cos(ang) * ring);
+            float bz = GameConfig.ClampArena(pp.z + Mathf.Sin(ang) * ring);
             var go = ObjectPool.Spawn(prefab, new Vector3(bx, 0f, bz), Quaternion.identity, transform);
-            go.transform.localScale = new Vector3(EnemyDefs.Boss.Scale, EnemyDefs.Boss.Scale, EnemyDefs.Boss.Scale);
+            go.transform.localScale = new Vector3(def.Scale, def.Scale, def.Scale);
 
             // Boss 血量 = 时间难度倍率 × Boss 档位成长
             float hpMul = GS.Profile().hpMul * GameConfig.BossHpMulAt(GS.Elapsed);
 
             var unit = go.GetComponent<EnemyUnit>();
             if (unit == null) unit = go.AddComponent<EnemyUnit>();
-            unit.Init(kind, true, hpMul);
-            unit.Animator = BossMotion.Setup(go);
-            unit.AnimClip = "idle";
+            unit.Init(def, true, hpMul);
+            if (def.HasAnimator)
+            {
+                unit.Animator = BossMotion.Setup(go, def.AnimIdle);
+                unit.AnimClip = def.AnimIdle;
+            }
             Registry.Enemies.Add(unit);
 
             AudioKit.PlaySfx(SfxKeys.BossAppear);
@@ -222,28 +255,7 @@ namespace BattleFortress
             GameBus.Emit(GameEvents.Float, "农场守卫来袭!");
         }
 
-        // ---------------- 投射物 ----------------
-        /// <summary>弓箭手射箭 [策划书 4.4]</summary>
-        private void ShootArrow(EnemyUnit e, Vector3 pp)
-        {
-            if (tplArrow == null) return;
-            Vector3 p = e.transform.position;
-            var go = ObjectPool.Spawn(tplArrow, new Vector3(p.x, arrowHeight, p.z), Quaternion.identity, transform);
-
-            float dx = pp.x - p.x;
-            float dz = pp.z - p.z;
-            float dl = Mathf.Sqrt(dx * dx + dz * dz);
-            if (dl < 0.0001f) dl = 1f;
-
-            var proj = go.GetComponent<Projectile>();
-            if (proj == null) proj = go.AddComponent<Projectile>();
-            proj.Init(dx / dl, dz / dl, e.Damage() * GS.Profile().dmgMul);
-            proj.transform.rotation = Quaternion.LookRotation(new Vector3(dx / dl, 0f, dz / dl), Vector3.up);
-            Registry.Projectiles.Add(proj);
-
-            AudioKit.PlaySfx(SfxKeys.Arrow);
-        }
-
+        // ---------------- 投射物（所有敌人远程攻击共用飞行/命中模拟） ----------------
         private void UpdateProjectiles(float dt, Vector3 pp)
         {
             float hitR = GameConfig.Ai.ArrowHitRadius;
@@ -284,19 +296,20 @@ namespace BattleFortress
             e.transform.rotation = Quaternion.LookRotation(new Vector3(tx, 0f, tz), Vector3.up);
         }
 
-        /// <summary>Boss 骨骼动画状态机：优先级 attack &gt; hit &gt; run/idle</summary>
+        /// <summary>Boss 骨骼动画状态机：优先级 attack &gt; hit &gt; run/idle（片段名来自 EnemyDef）</summary>
         private static void UpdateBossAnim(EnemyUnit e, float dt, float tx, float tz, float sp)
         {
-            if (e.Animator == null) return;
-            if (e.AttackT > 0f) { e.AttackT -= dt; BossMotion.Play(e, "attack"); return; }
-            if (e.AnimClip == "hit")
+            var d = e.Def;
+            if (e.Animator == null || d == null) return;
+            if (e.AttackT > 0f) { e.AttackT -= dt; BossMotion.Play(e, d.AnimAttack); return; }
+            if (e.AnimClip == d.AnimHit)
             {
                 e.HitT -= dt;
-                if (e.HitT <= 0f) BossMotion.Play(e, "run");
+                if (e.HitT <= 0f) BossMotion.Play(e, d.AnimRun);
                 return;
             }
             float moving = sp * Mathf.Sqrt(tx * tx + tz * tz);
-            BossMotion.Play(e, moving > 0.4f ? "run" : "idle");
+            BossMotion.Play(e, moving > 0.4f ? d.AnimRun : d.AnimIdle);
         }
 
         // ---------------- 主循环 ----------------
@@ -355,7 +368,7 @@ namespace BattleFortress
                             KillKit.Reward(e);
                             e.Dying = true;
                             e.DieT = GameConfig.Ai.BossDieAnimTime;
-                            BossMotion.Play(e, "die");
+                            BossMotion.Play(e, e.Def != null ? e.Def.AnimDie : "die");
                         }
                         e.DieT -= dt;
                         if (e.DieT <= 0f)
@@ -378,7 +391,7 @@ namespace BattleFortress
                 if (e.IsBoss && e.Animator != null && e.Hp < e.LastHp - 0.01f)
                 {
                     e.LastHp = e.Hp;
-                    if (!(e.AttackT > 0f)) { BossMotion.Play(e, "hit"); e.HitT = GameConfig.Ai.BossHitAnimTime; }
+                    if (!(e.AttackT > 0f)) { BossMotion.Play(e, e.Def.AnimHit); e.HitT = GameConfig.Ai.BossHitAnimTime; }
                 }
 
                 // 吞噬：核心圈内秒杀；强化外圈只磨血，越近越痛
@@ -422,35 +435,33 @@ namespace BattleFortress
 
                 if (e.IsBoss)
                 {
-                    StepBoss(e, dt, dl, dx, dz, p, profile.dmgMul, out tx, out tz, ref sp);
+                    // Boss 走位：直线逼近 + 二阶段提速（砸地攻击由 EnemyCombat 统一结算）
+                    StepBossMove(e, dx, dz, dl, ref sp, out tx, out tz);
                 }
-                else if (e.Kind != null)
+                else if (e.Def != null)
                 {
-                    // 普通敌兵：移动决策全部在 EnemySteer，这里只负责执行与射箭请求
+                    // 普通敌兵：走位决策在 EnemySteer
                     var steer = EnemySteer.Steer(e, dx, dz, dl, dt);
-                    if (steer.WantShoot)
-                    {
-                        e.ShootCd = GameConfig.Ai.ArcherShootCd;
-                        ShootArrow(e, pp);
-                    }
                     tx = steer.Tx;
                     tz = steer.Tz;
                     sp *= steer.SpeedMul;
                 }
                 else
                 {
-                    // 兜底：没有敌种表的单位直线追击
+                    // 兜底：没有定义的单位直线追击
                     tx = dx / dl;
                     tz = dz / dl;
                 }
 
-                // 近身伤害（弓箭手靠射箭，不做贴身）
-                // 只有即将被核心圈吞下的小体积敌人不造成贴身伤害；
-                // 强化外圈的敌人只是被磨血/吸附，仍活着，贴身照常造成伤害
+                // 攻击统一由 EnemyCombat 按 EnemyAttackDef 结算（远程投射/Boss 砸地；Contact 在下面贴身处理）
+                EnemyCombat.Tick(e, dx, dz, dl, dt, transform);
+
+                // 贴身伤害：只有 Contact 攻击方式的敌人贴身造成伤害；Projectile 靠弹体，None 不攻击
+                // 即将被核心圈吞下的小体积敌人不造成贴身伤害
                 bool willBeEaten = !e.IsBoss && dl < coreR && e.Size() <= GS.DevourSizeCap();
                 float hitR = e.IsBoss ? GameConfig.Ai.MeleeHitRadiusBoss : GameConfig.Ai.MeleeHitRadius;
-                bool isRanged = e.Kind != null && e.Kind.ranged;
-                if (dl < hitR && !willBeEaten && !isRanged && e.HitCd <= 0f && e.Damage() > 0f)
+                bool isContact = e.Def != null && e.Def.Combat != null && e.Def.Combat.Kind == EnemyAttackKind.Contact;
+                if (dl < hitR && !willBeEaten && isContact && e.HitCd <= 0f && e.Damage() > 0f)
                 {
                     e.HitCd = GameConfig.Ai.MeleeHitCd;
                     GS.Damage(e.Damage() * profile.dmgMul);
@@ -472,9 +483,8 @@ namespace BattleFortress
                 float moveSuppress = (e.KnockX != 0f || e.KnockZ != 0f)
                     ? GameConfig.RamKnockMoveSuppress : 1f;
 
-                float half = GameConfig.ArenaHalf + 4f;
-                p.x = Mathf.Clamp(p.x + tx * sp * dt * moveSuppress, -half, half);
-                p.z = Mathf.Clamp(p.z + tz * sp * dt * moveSuppress, -half, half);
+                p.x = GameConfig.ClampArena(p.x + tx * sp * dt * moveSuppress, 4f);
+                p.z = GameConfig.ClampArena(p.z + tz * sp * dt * moveSuppress, 4f);
                 p.y = 0f;
                 e.transform.position = p;
                 FaceDir(e, tx, tz);
@@ -483,28 +493,12 @@ namespace BattleFortress
             }
         }
 
-        /// <summary>Boss 逐帧行为：贴近砸地、血量过半提速，输出移动方向</summary>
-        private static void StepBoss(EnemyUnit e, float dt, float dl, float dx, float dz,
-            Vector3 p, float dmgMul, out float tx, out float tz, ref float sp)
+        /// <summary>Boss 走位：直线逼近，血量低于 Phase2At 提速（攻击结算已移到 EnemyCombat）</summary>
+        private static void StepBossMove(EnemyUnit e, float dx, float dz, float dl,
+            ref float sp, out float tx, out float tz)
         {
-            // Boss：贴近砸地，血量过半后提速
-            bool phase2 = e.Hp < e.MaxHp * EnemyDefs.Boss.Phase2At;
-            sp = EnemyDefs.Boss.Speed * (phase2 ? GameConfig.Ai.BossPhase2Mul : 1f);
-            e.SlamCd -= dt;
-            if (dl < EnemyDefs.Boss.SlamRadius && e.SlamCd <= 0f)
-            {
-                e.SlamCd = EnemyDefs.Boss.SlamCd;
-                GS.Damage(EnemyDefs.Boss.Dmg * dmgMul);
-                AudioKit.PlaySfx(SfxKeys.ExplosionBig);
-                Fx.PlayVfx(VfxKeys.RingWave, p.x, 0.3f, p.z, GameConfig.Ai.BossSlamRingFx);
-                Fx.PlayVfx(VfxKeys.ExplosionSheet, p.x, 1f, p.z, GameConfig.Ai.BossSlamExplosionFx);
-                Fx.Shake(GameConfig.Ai.BossSlamShake);
-                if (e.Animator != null)
-                {
-                    BossMotion.Play(e, "attack");
-                    e.AttackT = GameConfig.Ai.BossAttackAnimTime;
-                }
-            }
+            bool phase2 = e.Hp < e.MaxHp * e.Def.Phase2At;
+            sp = e.Def.Speed * (phase2 ? GameConfig.Ai.BossPhase2Mul : 1f);
             tx = dx / dl;
             tz = dz / dl;
         }

@@ -5,9 +5,9 @@ using UnityEngine.UI;
 namespace BattleFortress
 {
     /// <summary>
-    /// 小地图：显示玩家在竞技场中的位置与周围敌人分布。
-    /// 同时解决「走到边界以为卡住」的问题——边框即为可活动范围。
-    /// 对应 LayaAir 版 ui/MiniMap.ts。
+    /// 小地图：显示玩家位置与周围敌人分布。
+    /// 有边界（ArenaBounded）时按整张竞技场映射；无边界时以玩家为中心开动态窗口，
+    /// 玩家恒在中心、半径 MiniMapViewRange 米映射到半张图。
     /// </summary>
     public class MiniMap : MonoBehaviour
     {
@@ -61,15 +61,24 @@ namespace BattleFortress
         }
 
         /// <summary>
-        /// 世界坐标 → 小地图像素（相对底板左下角）。
-        /// 相机位于玩家 -Z 侧、俯看 +Z，yaw=0 时屏幕右方对应世界 +X、屏幕上方对应 +Z，
-        /// 因此小地图 X 不镜像（旧实现错误镜像导致左右与实际移动相反）。
+        /// 世界坐标 → 小地图像素（相对底板左下角）。cx/cz 为动态窗口中心（玩家坐标）。
+        /// 相机位于玩家 -Z 侧、俯看 +Z，yaw=0 时屏幕右方对应世界 +X、屏幕上方对应 +Z，X 不镜像。
         /// </summary>
-        private Vector2 ToMap(float x, float z)
+        private Vector2 ToMap(float x, float z, float cx, float cz)
         {
-            float half = GameConfig.ArenaHalf;
-            float u = (x + half) / (half * 2f);
-            float v = (z + half) / (half * 2f);
+            float u, v;
+            if (GameConfig.ArenaBounded)
+            {
+                float half = GameConfig.ArenaHalf;
+                u = (x + half) / (half * 2f);
+                v = (z + half) / (half * 2f);
+            }
+            else
+            {
+                float r = GameConfig.MiniMapViewRange;
+                u = 0.5f + (x - cx) / (r * 2f);
+                v = 0.5f + (z - cz) / (r * 2f);
+            }
             return new Vector2(u * _size, v * _size);
         }
 
@@ -100,7 +109,7 @@ namespace BattleFortress
             if (GS.Paused || GS.Over) return;
 
             Vector3 pp = playerNode.position;
-            Vector2 pm = ToMap(pp.x, pp.z);
+            Vector2 pm = ToMap(pp.x, pp.z, pp.x, pp.z); // 玩家：动态窗口下恒为中心
 
             if (marker != null)
             {
@@ -113,11 +122,20 @@ namespace BattleFortress
 
             if (coordLabel != null)
             {
-                // 贴边时提示玩家已到边界，而不是让人以为卡住了
-                float half = GameConfig.ArenaHalf;
-                bool edge = Mathf.Abs(pp.x) > half - 1.2f || Mathf.Abs(pp.z) > half - 1.2f;
-                coordLabel.text = edge ? "已到地图边缘" : Mathf.RoundToInt(pp.x) + " , " + Mathf.RoundToInt(pp.z);
-                coordLabel.color = edge ? new Color(1f, 0.69f, 0.63f) : new Color(1f, 0.914f, 0.659f);
+                if (GameConfig.ArenaBounded)
+                {
+                    // 有边界：贴边时提示已到边缘
+                    float half = GameConfig.ArenaHalf;
+                    bool edge = Mathf.Abs(pp.x) > half - 1.2f || Mathf.Abs(pp.z) > half - 1.2f;
+                    coordLabel.text = edge ? "已到地图边缘" : Mathf.RoundToInt(pp.x) + " , " + Mathf.RoundToInt(pp.z);
+                    coordLabel.color = edge ? new Color(1f, 0.69f, 0.63f) : new Color(1f, 0.914f, 0.659f);
+                }
+                else
+                {
+                    // 无边界：只显示坐标
+                    coordLabel.text = Mathf.RoundToInt(pp.x) + " , " + Mathf.RoundToInt(pp.z);
+                    coordLabel.color = new Color(1f, 0.914f, 0.659f);
+                }
             }
 
             // 敌人点位：Boss 用大红点，普通敌人小点
@@ -128,7 +146,7 @@ namespace BattleFortress
                 if (e == null || e.Dead || !e.gameObject.activeInHierarchy) continue;
 
                 var ep = e.transform.position;
-                Vector2 m = ToMap(ep.x, ep.z);
+                Vector2 m = ToMap(ep.x, ep.z, pp.x, pp.z);
                 if (m.x < 0f || m.x > _size || m.y < 0f || m.y > _size) continue;
 
                 var dot = ObtainDot(n++);

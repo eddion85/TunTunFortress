@@ -19,11 +19,11 @@ namespace BattleFortress
         }
 
         /// <summary>初始化：播 idle。返回 Animator 或 null</summary>
-        public static Animator Setup(GameObject node)
+        public static Animator Setup(GameObject node, string idleClip = "idle")
         {
             var anim = FindAnimator(node);
             if (anim == null) return null;
-            anim.Play("idle", 0, 0f);
+            anim.Play(string.IsNullOrEmpty(idleClip) ? "idle" : idleClip, 0, 0f);
             return anim;
         }
 

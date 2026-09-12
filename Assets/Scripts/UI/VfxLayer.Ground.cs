@@ -79,7 +79,7 @@ namespace BattleFortress
             {
                 var e = Registry.Enemies[i];
                 if (e == null || e.Dead || !e.gameObject.activeInHierarchy) continue;
-                float s = e.IsBoss ? 2.2f : 0.55f + (e.Kind != null ? e.Kind.size : 1) * 0.25f;
+                float s = e.IsBoss ? 2.2f : 0.55f + (e.Def != null ? e.Def.Size : 1) * 0.25f;
                 UpdateShadow(n++, e.transform.position, s);
             }
 

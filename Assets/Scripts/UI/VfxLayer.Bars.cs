@@ -53,7 +53,8 @@ namespace BattleFortress
                 Vector3 p = e.transform.position;
                 float h = e.IsBoss ? 3.4f : 1.8f;
                 Vector2 local;
-                if (!Project(new Vector3(p.x, p.y + h, p.z), out local))
+                Vector3 barWorld = e.BarAnchor != null ? e.BarAnchor.position : new Vector3(p.x, p.y + h, p.z);
+                if (!Project(barWorld, out local))
                 {
                     bar.root.SetActive(false);
                     continue;

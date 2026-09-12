@@ -72,12 +72,10 @@ namespace BattleFortress
 
         [Header("武器挂装（通用 WeaponMountSystem：指定挂点父节点即可换装）")]
         [SerializeField] private string topSlotId = "Slot_Top";      // 车顶挂点 id（同时也是模型内节点名）
-        [SerializeField, Range(0.1f, 1f)] private float weaponWidthRatio = 0.5f; // 自动尺寸：武器宽度占当前形态宽度比例
 
         [Header("车侧弩箭（奖励弹窗解锁：每侧1把，升星后每侧2把，沿前后排列、朝外射击）")]
         [SerializeField] private string sideLeftSlotName = "Slot_Side_Left";
         [SerializeField] private string sideRightSlotName = "Slot_Side_Right";
-        [SerializeField, Range(0.1f, 1f)] private float crossbowWidthRatio = 0.7f; // 弩宽度占车体宽度比例（也是双弩前后间距），上限1保证不超出车体
         [SerializeField] private Vector3 crossbowEulerLeft = new Vector3(0f, 0f, -90f);  // 左弩朝外：弩身模型 +Y 转到世界 +X，弩臂竖直
         [SerializeField] private Vector3 crossbowEulerRight = new Vector3(0f, 0f, 90f);  // 右弩朝外：模型 +Y 转到世界 -X
         private const int MaxCrossbowPerSide = 2;
@@ -141,6 +139,12 @@ namespace BattleFortress
                 if (joy != null) joy.SetActive(false); // 点地模式下隐藏虚拟摇杆
             }
             _marker = TapMoveMarker.Create(transform.parent, markerLife, markerSize, markerColor);
+            // 无边界时运行时铺跟随地砖（视觉无限地面，不改场景）
+            if (GameConfig.GroundFollow && FindObjectOfType<InfiniteGround>() == null)
+            {
+                var groundGo = new GameObject("InfiniteGround");
+                groundGo.AddComponent<InfiniteGround>().Init(transform);
+            }
             BuildFrontCannon();
         }
 
@@ -215,7 +219,7 @@ namespace BattleFortress
                     return tier != null ? FindDeepChild(tier.transform, topSlotId) : null;
                 },
                 () => ActiveTier()?.transform, // 尺寸参考根：当前形态模型
-                weaponWidthRatio);
+                GameConfig.EquipSizeRatio);
 
             // 车头攻城锤：长轴沿模型 Y，按 Y 量长度，旋转后长轴对正车头 +Z
             _weapons.Bind(frontSlotId,
@@ -225,7 +229,7 @@ namespace BattleFortress
                     return tier != null ? FindDeepChild(tier.transform, frontSlotId) : null;
                 },
                 () => ActiveTier()?.transform,
-                GameConfig.RamLengthRatio, RamEuler, 1,
+                GameConfig.EquipSizeRatio, RamEuler, 1,
                 new Vector3(GameConfig.RamThickMul, 1f, GameConfig.RamThickMul)); // 只加粗垂直长轴的 X/Z，长度不变
 
             // 车侧弩箭：每侧最多 MaxCrossbowPerSide 把，各自一个排架锚点（挂点子节点），沿车体前后排列
@@ -234,10 +238,10 @@ namespace BattleFortress
                 int idx = i; // 闭包捕获副本
                 _weapons.Bind(SideRackId(true, idx),
                     () => RackAnchor(sideLeftSlotName, idx, crossbowEulerLeft),
-                    () => ActiveTier()?.transform, crossbowWidthRatio, crossbowEulerLeft);
+                    () => ActiveTier()?.transform, GameConfig.EquipSizeRatio, crossbowEulerLeft);
                 _weapons.Bind(SideRackId(false, idx),
                     () => RackAnchor(sideRightSlotName, idx, crossbowEulerRight),
-                    () => ActiveTier()?.transform, crossbowWidthRatio, crossbowEulerRight);
+                    () => ActiveTier()?.transform, GameConfig.EquipSizeRatio, crossbowEulerRight);
             }
         }
 
@@ -265,7 +269,7 @@ namespace BattleFortress
 
             // 总把数决定排布：1 把居中；2 把前后各半（间距=弩的世界宽度，与自动缩放同口径）
             float bodyWidth = WeaponMount.MeasureBodyWidth(tier.transform);
-            float spacing = bodyWidth * crossbowWidthRatio;
+            float spacing = bodyWidth * GameConfig.EquipSizeRatio;
             float along = MaxCrossbowPerSide <= 1 ? 0f : (idx == 0 ? -0.5f : 0.5f) * spacing;
             anchor.localPosition = slot.InverseTransformDirection(Vector3.forward * along);
             anchor.localRotation = Quaternion.identity; // 朝向由 WeaponMount 的 localEuler 承担
@@ -531,9 +535,9 @@ namespace BattleFortress
                     {
                         Vector3 p = ray.GetPoint(enter);
                         p.y = 0f;
-                        float half = GameConfig.ArenaHalf;
-                        p.x = Mathf.Clamp(p.x, -half, half);
-                        p.z = Mathf.Clamp(p.z, -half, half);
+                        
+                        p.x = GameConfig.ClampArena(p.x);
+                        p.z = GameConfig.ClampArena(p.z);
                         _target = p;
                         _hasTarget = true;
                         if (!_marked || (p - _lastMark).sqrMagnitude > markMinMove * markMinMove)
@@ -611,11 +615,11 @@ namespace BattleFortress
             float boost = _dash > 0f ? GameConfig.DashSpeedMul : 1f;
             float sp = speed * GS.SpeedMul * boost;
             Vector3 pos = transform.position;
-            float half = GameConfig.ArenaHalf;
+            
 
             // 边界钳制：贴边时保留切向移动，避免斜向顶墙时完全卡死
-            pos.x = Mathf.Clamp(pos.x + _dir.x * sp * dt, -half, half);
-            pos.z = Mathf.Clamp(pos.z + _dir.z * sp * dt, -half, half);
+            pos.x = GameConfig.ClampArena(pos.x + _dir.x * sp * dt);
+            pos.z = GameConfig.ClampArena(pos.z + _dir.z * sp * dt);
             pos.y = 0f;
             transform.position = pos;
 
@@ -656,8 +660,8 @@ namespace BattleFortress
             }
 
             // 朝墙走且已贴边 → 非阻断提示（自动上浮淡出，不暂停游戏；节流防刷屏）
-            bool hitX = (_dir.x > 0.01f && pos.x >= half - edgeEps) || (_dir.x < -0.01f && pos.x <= -half + edgeEps);
-            bool hitZ = (_dir.z > 0.01f && pos.z >= half - edgeEps) || (_dir.z < -0.01f && pos.z <= -half + edgeEps);
+            bool hitX = GameConfig.ArenaBounded && ((_dir.x > 0.01f && pos.x >= GameConfig.ArenaHalf - edgeEps) || (_dir.x < -0.01f && pos.x <= -GameConfig.ArenaHalf + edgeEps));
+            bool hitZ = GameConfig.ArenaBounded && ((_dir.z > 0.01f && pos.z >= GameConfig.ArenaHalf - edgeEps) || (_dir.z < -0.01f && pos.z <= -GameConfig.ArenaHalf + edgeEps));
             if ((hitX || hitZ) && _edgeTipT <= 0f)
             {
                 _edgeTipT = edgeTipCooldown;
@@ -701,3 +705,4 @@ namespace BattleFortress
         }
     }
 }
+

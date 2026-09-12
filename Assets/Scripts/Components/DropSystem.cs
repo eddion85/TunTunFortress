@@ -48,12 +48,12 @@ namespace BattleFortress
         }
 
         /// <summary>供 EnemySpawner / KillKit 在敌人死亡时调用</summary>
-        public static void SpawnDrop(float x, float z, EnemyKind kind, bool isBoss)
+        public static void SpawnDrop(float x, float z, EnemyDef def, bool isBoss)
         {
-            if (_inst != null) _inst.Drop(x, z, kind, isBoss);
+            if (_inst != null) _inst.Drop(x, z, def, isBoss);
         }
 
-        private void Drop(float x, float z, EnemyKind kind, bool isBoss)
+        private void Drop(float x, float z, EnemyDef def, bool isBoss)
         {
             GameObject tpl = null;
             string type = "";
@@ -85,7 +85,7 @@ namespace BattleFortress
 
             var item = go.GetComponent<DropItem>();
             if (item == null) item = go.AddComponent<DropItem>();
-            item.Init(type, (kind != null ? kind.prog : 0) + 3);
+            item.Init(type, (def != null ? def.Prog : 0) + 3);
             Registry.Drops.Add(item);
         }
 
