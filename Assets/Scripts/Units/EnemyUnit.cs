@@ -14,6 +14,8 @@ namespace BattleFortress
         public float MaxHp;
         public bool Dead;
         public bool IsBoss;
+        public float BodyRadius = 0.5f; // 世界 XZ 平面碰撞半径（出生时按模型包围盒测量，敌人之间防重叠用）
+        public float YieldUntil;        // 让行静止截止时间（Time.time）：在此之前不移动（仍可攻击/转向）
 
         // ---- AI 计时器 ----
         public float HitCd;        // 近身攻击冷却

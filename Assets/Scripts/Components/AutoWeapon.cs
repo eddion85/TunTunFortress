@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -299,11 +299,34 @@ namespace BattleFortress
             Fx.Shake(d.FireShake);
             KickRecoil(m);
 
-            // 弩箭用箭矢模型，其余用炮弹；未配置箭矢模板时回退默认炮弹
-            var tpl = d.ProjKind == ProjectileKind.Arrow && shellTplArrow != null ? shellTplArrow : shellTpl;
+            // 弹体外观：弩箭=箭矢 prefab（原色）；侧炮=danyao1 黑球；其余大炮=danyao2 黑弹壳。
+            // danyao 弹运行时从 Resources 取，ShellScale 语义为“期望世界直径（米）”，按模型原始尺寸换算 localScale；
+            // Resources 缺失时回退 Inspector 上的 shellTpl，保证不崩。
+            GameObject tpl;
+            float localScale;
+            bool tintShell;
+            if (d.ProjKind == ProjectileKind.Arrow)
+            {
+                tpl = shellTplArrow != null ? shellTplArrow : shellTpl;
+                localScale = d.ShellScale;
+                tintShell = false;
+            }
+            else if (d.ProjKind == ProjectileKind.SideShell)
+            {
+                tpl = ProjectileVisual.Load(ProjectileVisual.SideShellPath) ?? shellTpl;
+                localScale = ProjectileVisual.ToLocalScale(d.ShellScale, ProjectileVisual.SideShellRawSize);
+                tintShell = true;
+            }
+            else
+            {
+                tpl = ProjectileVisual.Load(ProjectileVisual.ShellPath) ?? shellTpl;
+                localScale = ProjectileVisual.ToLocalScale(d.ShellScale, ProjectileVisual.ShellRawSize);
+                tintShell = true;
+            }
             if (tpl == null) return;
             var shell = ObjectPool.Spawn(tpl, from, Quaternion.identity, transform.parent);
-            shell.transform.localScale = new Vector3(d.ShellScale, d.ShellScale, d.ShellScale);
+            shell.transform.localScale = new Vector3(localScale, localScale, localScale);
+            if (tintShell) ProjectileVisual.TintShell(shell);
 
             var sh = shell.GetComponent<Shell>();
             if (sh == null) sh = shell.AddComponent<Shell>();
@@ -540,3 +563,5 @@ namespace BattleFortress
         }
     }
 }
+
+

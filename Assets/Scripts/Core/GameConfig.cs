@@ -56,6 +56,12 @@ namespace BattleFortress
         public const float DevourCd = 1f;             // 强化吞噬冷却（只防连点，金币才是主要门槛）
         public const int DevourCoinCost = 30;         // 强化吞噬消耗金币（广告承接点）
 
+        /// <summary>
+        /// 强化（强制）吞噬允许直接吞下的敌人 Key 白名单：只有牛/羊/farmer/rider/archer 这类小怪能被强吞；
+        /// 其余敌人（车辆/炮塔/支援/Boss）在强化吞噬时只受外圈磨血与真空吸附，不会被直接吞下。
+        /// </summary>
+        public static readonly string[] DevourForceWhitelist = { "sheep", "cow", "farmer", "rider", "archer" };
+
         public const float ArenaHalf = 29f;           // 有边界时的半边长（与可见地面对齐，留 2m 视觉余量）
         public static readonly bool ArenaBounded = false;       // 是否限制活动边界：false=无边界自由移动
         public const float MiniMapViewRange = 40f;     // 无边界时小地图动态窗口半径（世界米，玩家恒在中心）
@@ -116,7 +122,7 @@ namespace BattleFortress
         public const float FrontShellSpeed = 26f;      // 正面炮弹速
         public const float ShellLife = 1.6f;           // 炮弹最长存活（秒），到期按当前位置结算
         public const float ShellArriveDist = 0.9f;     // 距落点多少米判定命中/爆炸
-        public const float SideShellScale = 0.7f;      // 侧炮弹体模型缩放
+        public const float SideShellScale = 0.3f;      // 侧炮弹体世界直径（米，danyao1 球形）
         public const float FrontShellScale = 1.5f;     // 正面炮弹体模型缩放（更大更醒目）
         public const float FrontTrailInterval = 0.05f; // 正面炮飞行拖尾：每多少秒留一团火
         public const float FrontTrailFxScale = 0.85f;  // 拖尾火团尺寸（收小，避免糊屏）
@@ -206,13 +212,19 @@ namespace BattleFortress
             public const float ArrowLife = 2.5f;        // 箭最长存活
             public const float ArrowHitRadius = 1.2f;   // 箭命中玩家半径
 
+            // 敌弹体积随伤害放大：倍率 = clamp(伤害 / 参考伤害, 最小, 最大)，伤害越大弹越大
+            public const float ProjSizeRefDmg = 6f;     // 该伤害下倍率=1（即 ProjScale 标称尺寸）
+            public const float ProjSizeMin = 0.6f;      // 体积倍率下限
+            public const float ProjSizeMax = 3f;        // 体积倍率上限
+
 // 侧炮车（Agent_SideShooter：AttackModules 下左右各 4 个炮塔）
             public const float EnemySideCannonCd = 2.8f;        // 齐射间隔（秒）
             public const float EnemySideCannonRange = 13f;      // 开火最大距离
             public const float EnemySideCannonSpread = 8f;      // 炮口散射总夹角（度）
             public const float EnemySideCannonProjSpeed = 12f;  // 炮弹速度
             public const float EnemySideCannonProjLife = 3f;    // 炮弹存活
-            public const float EnemySideCannonProjScale = 0.55f;// 炮弹缩放
+            public const float EnemySideCannonProjScale = 0.55f;// 旧炮弹缩放（已弃用，保留兼容）
+            public const float SideShellDiam = 0.7f;            // 侧炮 danyao1 弹体在参考伤害下的世界直径（米）
             public const float EnemySideCannonMuzzleHeight = 1f;// 无炮口节点时的发射高度
             public const string SideShooterMuzzleNode = "AttackInstantiationPoint"; // 炮口节点名（同名全部收集）
             public const string SideShooterTurretNode = "AttackModule_(Turret)";    // 转向玩家的炮塔节点名
@@ -232,6 +244,8 @@ namespace BattleFortress
             public const float EnemyTurretMuzzleHeight = 1f;
             public const float EnemyTurretRecoilDist = 0.22f;
             public const float EnemyTurretRecoilTime = 0.2f;
+            // Boss 迫击炮 T2：固定多联装炮管，炮口节点名 InstantiationPoint（不转向、无后坐炮管）
+            public const string BossMortarMuzzleNode = "InstantiationPoint";
 
             // 轮子滚动（EnemyWheelRig）
             public const string EnemyWheelsNode = "Wheels";  // 车轮根节点名
@@ -262,6 +276,11 @@ namespace BattleFortress
             public const float MeleeHitRadius = 1.9f;       // 普通兵贴身伤害半径
             public const float MeleeHitRadiusBoss = 3.2f;  // Boss 贴身伤害半径
             public const float MeleeHitCd = 1f;            // 贴身伤害间隔
+
+            // 敌人之间防重叠（小兵/Boss 绝不互相穿插）：两两检测到太近时，随机让其中一个原地静止一会儿、另一个继续走
+            public static readonly bool EnemyYieldEnabled = true;
+            public const float EnemySepGap = 1.02f;       // “太近”距离 = 双方半径和 × 该系数（略大于 1 留缝）
+            public const float EnemyYieldFreezeSec = 1f;  // 被选中让行的一方静止时长（秒）
 
             // 强化吞噬真空吸附
             public const float DevourPullRadiusMul = 2.4f; // 吸附半径 = 吞噬圈 × 该值
@@ -406,6 +425,9 @@ namespace BattleFortress
 
             // ---------- Boss 时间表 ----------
             public const float BossFirstTime = 90f;     // 第一只 Boss 出场秒数
+            public const float BossAppearT0 = 150f;     // 钻车 Boss（T0）从第几秒起可能出场
+            public const float BossAppearT2 = 300f;     // 迫击炮 Boss（T2）解锁秒数
+            public const float BossAppearT3 = 480f;     // 双管炮 Boss（T3）解锁秒数
             public const float BossInterval = 70f;      // 上一只 Boss 死亡后，隔多少秒再来一只
             public const float BossBatchGap = 12f;      // 同批次补多只 Boss 时的出场间隔（秒）
             public const float BossCountStep = 120f;    // 首 Boss 后每存活 N 秒，同屏 Boss 数量 +1（后期难度来源）

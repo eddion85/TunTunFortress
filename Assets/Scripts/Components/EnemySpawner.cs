@@ -200,7 +200,19 @@ namespace BattleFortress
             if (unit == null) unit = go.AddComponent<EnemyUnit>();
             unit.Init(def, def.IsBoss, GS.Profile().hpMul);
 
-            // 攻击挂点表现（炮塔转向/炮管后坐/隐藏自带 UI），没有对应节点时自动空转
+            AttachRigs(go, def, unit);
+
+            Registry.Enemies.Add(unit);
+            return unit;
+        }
+
+        /// <summary>
+        /// 给实例挂齐模型节点功能（普通兵与 Boss 共用）：攻击挂点（炮塔转向/炮口齐射/炮管后坐/隐藏自带 UI）、
+        /// Wheels 车轮滚动与轨迹、HPBar_Bar 血条锚点。模型缺对应节点时各组件自动空转，不报错。
+        /// </summary>
+        private static void AttachRigs(GameObject go, EnemyDef def, EnemyUnit unit)
+        {
+            // 攻击挂点表现，没有对应节点时自动空转
             var rig = go.GetComponent<EnemyAttackRig>();
             if (rig == null) rig = go.AddComponent<EnemyAttackRig>();
             rig.Setup(def.Combat);
@@ -216,8 +228,8 @@ namespace BattleFortress
             // 血条锚点：优先贴模型自带 HPBar_Bar，找不到时血条系统按固定头顶高度兜底
             unit.BarAnchor = RigNodes.FindFirst(go.transform, GameConfig.Ai.EnemyBarNode);
 
-            Registry.Enemies.Add(unit);
-            return unit;
+            // 碰撞半径：缩放已应用，按模型水平包围盒测一次，供敌人之间防重叠（WorldLength=X/Z 较大直径）
+            unit.BodyRadius = Mathf.Max(0.3f, unit.WorldLength() * 0.5f);
         }
 
         private void SpawnOne()
@@ -264,6 +276,8 @@ namespace BattleFortress
             var unit = go.GetComponent<EnemyUnit>();
             if (unit == null) unit = go.AddComponent<EnemyUnit>();
             unit.Init(def, true, hpMul);
+            // Boss 同样挂齐攻击挂点/车轮/血条锚点（车辆系 Boss 靠它们驱动炮塔、轮子和血条位置）
+            AttachRigs(go, def, unit);
             if (def.HasAnimator)
             {
                 unit.Animator = BossMotion.Setup(go, def.AnimIdle);
@@ -341,6 +355,7 @@ namespace BattleFortress
             TickSpawnSchedule(dt, profile);
             TickBossSchedule();
             UpdateProjectiles(dt, pp);
+            ResolveYieldFreeze(); // 两两检测太近：随机让一方本轮起静止 1s，另一方继续走
             TickAllEnemies(dt, pp, profile);
         }
 
@@ -368,10 +383,11 @@ namespace BattleFortress
 
                 e.HitCd -= dt;
                 Vector3 move = ResolveMoveDir(e, dx, dz, dl, dt, profile, out float speed);
+                if (Time.time < e.YieldUntil) { move = Vector3.zero; speed = 0f; } // 让行：原地静止，攻击照常
 
                 // 攻击统一由 EnemyCombat 按 EnemyAttackDef 结算（远程投射/Boss 砸地；Contact 在下面贴身处理）
                 EnemyCombat.Tick(e, dx, dz, dl, dt, transform);
-                TickContactDamage(e, dl, coreR, pp, profile.dmgMul);
+                TickContactDamage(e, dl, coreR, boosted, pp, profile.dmgMul);
                 IntegrateMovement(e, p, move.x, move.z, speed, dt);
 
                 if (e.IsBoss) UpdateBossAnim(e, dt, move.x, move.z, speed);
@@ -418,12 +434,34 @@ namespace BattleFortress
             }
         }
 
+        /// <summary>敌人 Key 是否在强化吞噬白名单（牛/羊/farmer/rider/archer）内</summary>
+        private static bool InDevourWhitelist(EnemyUnit e)
+        {
+            if (e?.Def == null || string.IsNullOrEmpty(e.Def.Key)) return false;
+            var list = GameConfig.DevourForceWhitelist;
+            for (int i = 0; i < list.Length; i++)
+                if (list[i] == e.Def.Key) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// 核心圈能否直接吞下该敌人：Boss 不行、体积受 DevourSizeCap 限制；
+        /// 强化（强制）吞噬还要求 Key 在白名单内——其余敌人强吞时不被吞下（仍吃外圈磨血/吸附）；
+        /// 非强化的基础吞噬沿用原体积规则，不加白名单限制。
+        /// </summary>
+        private static bool CanCoreDevour(EnemyUnit e, float dl, float coreR, bool boosted)
+        {
+            if (e.IsBoss || dl >= coreR || e.Size() > GS.DevourSizeCap()) return false;
+            if (boosted && !InDevourWhitelist(e)) return false;
+            return true;
+        }
+
         /// <summary>吞噬：核心圈内秒杀；强化外圈只磨血，越近越痛；强化时真空吸附。返回 true 表示敌人已被吞下并移除</summary>
         private bool TickDevour(EnemyUnit e, ref Vector3 p, float dx, float dz, float dt, float dl,
             float radius, float coreR, bool boosted, int index)
         {
-            // 核心圈：可吞下体积的非 Boss 直接结算
-            if (!e.IsBoss && dl < coreR && e.Size() <= GS.DevourSizeCap())
+            // 核心圈：满足吞下条件直接结算（强化吞噬额外要求在白名单内，车辆/炮塔/Boss 等不能被强吞）
+            if (CanCoreDevour(e, dl, coreR, boosted))
             {
                 KillKit.Reward(e);
                 Registry.Enemies.RemoveAt(index);
@@ -487,9 +525,9 @@ namespace BattleFortress
         }
 
         /// <summary>贴身接触伤害：只有 Contact 攻击方式的敌人贴身造成伤害；即将被吞下的敌人不造成伤害</summary>
-        private static void TickContactDamage(EnemyUnit e, float dl, float coreR, Vector3 pp, float dmgMul)
+        private static void TickContactDamage(EnemyUnit e, float dl, float coreR, bool boosted, Vector3 pp, float dmgMul)
         {
-            bool willBeEaten = !e.IsBoss && dl < coreR && e.Size() <= GS.DevourSizeCap();
+            bool willBeEaten = CanCoreDevour(e, dl, coreR, boosted);
             float hitR = e.IsBoss ? GameConfig.Ai.MeleeHitRadiusBoss : GameConfig.Ai.MeleeHitRadius;
             bool isContact = e.Def != null && e.Def.Combat != null && e.Def.Combat.Kind == EnemyAttackKind.Contact;
             if (!(dl < hitR && !willBeEaten && isContact && e.HitCd <= 0f && e.Damage() > 0f)) return;
@@ -527,6 +565,43 @@ namespace BattleFortress
         {
             if (tx * tx + tz * tz < 0.0001f) return;
             e.transform.rotation = Quaternion.LookRotation(new Vector3(tx, 0f, tz), Vector3.up);
+        }
+
+        /// <summary>
+        /// 让行静止：两两检测，距离小于双方半径和（太近）时，随机挑一方在接下来一小段时间内原地静止，
+        /// 另一方继续移动，从而避免互相穿插/挤成一团。已有一方在让行时不再冻结另一方（防止双双停死），
+        /// 等它让行结束后若仍贴太近再重新随机。Boss 与小兵一视同仁，都可能被随机选中。
+        /// </summary>
+        private void ResolveYieldFreeze()
+        {
+            if (!GameConfig.Ai.EnemyYieldEnabled) return;
+            float now = Time.time;
+            var list = Registry.Enemies;
+            for (int i = 0; i < list.Count; i++)
+            {
+                var a = list[i];
+                if (a == null || a.Dying) continue;
+                bool aFrozen = now < a.YieldUntil;
+                for (int j = i + 1; j < list.Count; j++)
+                {
+                    var b = list[j];
+                    if (b == null || b.Dying) continue;
+                    bool bFrozen = now < b.YieldUntil;
+                    if (aFrozen || bFrozen) continue; // 已有一方在让行：它停、另一方走
+
+                    var pa = a.transform.position;
+                    var pb = b.transform.position;
+                    float dx = pa.x - pb.x, dz = pa.z - pb.z;
+                    float d = Mathf.Sqrt(dx * dx + dz * dz);
+                    float touch = (a.BodyRadius + b.BodyRadius) * GameConfig.Ai.EnemySepGap;
+                    if (d >= touch) continue;
+
+                    // 太近且双方都没在让行：随机选一个静止 EnemyYieldFreezeSec 秒
+                    var yielder = Random.value < 0.5f ? a : b;
+                    yielder.YieldUntil = now + GameConfig.Ai.EnemyYieldFreezeSec;
+                    if (yielder == a) aFrozen = true; else bFrozen = true;
+                }
+            }
         }
 
         /// <summary>Boss 骨骼动画状态机：优先级 attack &gt; hit &gt; run/idle（片段名来自 EnemyDef）</summary>

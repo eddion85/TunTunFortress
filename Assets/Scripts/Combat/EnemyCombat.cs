@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 
 namespace BattleFortress
@@ -46,7 +46,9 @@ namespace BattleFortress
         public float SpreadAngle;     // 单炮口齐射总张角（度）：均摊到各发，0=直瞄
         public float ProjSpeed;       // 弹速（米/秒）
         public float ProjLife;        // 弹体存活（秒）
-        public float ProjScale = 1f;  // 弹体缩放
+        public float ProjScale = 1f;  // 参考伤害下弹体的世界直径（米）
+        public float ProjRawSize = 1f;// 弹体模型原始最长边（米），用于把世界直径换算成 localScale（旧 prefab 为 1）
+        public bool TintShell;       // true=把弹体染成统一棕色（danyao 系列炮弹）
         public string MuzzleNode;     // 炮口子节点名（同名全部收集，如左右各 4 个），空=自身中心
         public float MuzzleHeight = 1f;
         public float BroadsideAngle;  // Sideways：车身与玩家夹角偏离正侧位不超过该角度才开火
@@ -71,8 +73,10 @@ namespace BattleFortress
     /// </summary>
     public static class EnemyCombat
     {
-        private const string ProjDir = "prefabs/proj/";
-        private static readonly Dictionary<string, GameObject> _projCache = new Dictionary<string, GameObject>();
+        // 弹体 Resources 路径（danyao 炮弹统一来自 ProjectileVisual；这里只额外保留箭矢 prefab）
+        public const string ProjArrowPath = "prefabs/proj/Proj_Arrow";                 // 箭矢（旧 prefab，原色）
+        public const string ProjSideShellPath = ProjectileVisual.SideShellPath;       // 侧炮炮弹（球形）
+        public const string ProjShellPath = ProjectileVisual.ShellPath;               // 其余炮弹（弹壳形）
 
         // ---------------- 攻击方式工厂（数值走 GameConfig，新攻击效果在这里加工厂） ----------------
 
@@ -97,7 +101,7 @@ namespace BattleFortress
             FireMode = EnemyFireMode.Aimed,
             Cd = GameConfig.Ai.ArcherShootCd,
             Range = GameConfig.Ai.ArcherShootRange,
-            ProjPath = ProjDir + "Proj_Arrow",
+            ProjPath = ProjArrowPath,
             Volley = 1, SpreadAngle = 0f,
             ProjSpeed = GameConfig.Ai.ArrowSpeed,
             ProjLife = GameConfig.Ai.ArrowLife,
@@ -113,12 +117,12 @@ namespace BattleFortress
             FireMode = EnemyFireMode.Sideways,
             Cd = GameConfig.Ai.EnemySideCannonCd,
             Range = GameConfig.Ai.EnemySideCannonRange,
-            ProjPath = ProjDir + "Proj_CannonBall",
+            ProjPath = ProjSideShellPath,
             Volley = 1,
             SpreadAngle = GameConfig.Ai.EnemySideCannonSpread,
             ProjSpeed = GameConfig.Ai.EnemySideCannonProjSpeed,
             ProjLife = GameConfig.Ai.EnemySideCannonProjLife,
-            ProjScale = GameConfig.Ai.EnemySideCannonProjScale,
+            ProjScale = GameConfig.Ai.SideShellDiam, ProjRawSize = ProjectileVisual.SideShellRawSize, TintShell = true,
             MuzzleNode = GameConfig.Ai.SideShooterMuzzleNode,
             MuzzleHeight = GameConfig.Ai.EnemySideCannonMuzzleHeight,
             BroadsideAngle = GameConfig.Ai.SideShooterBroadside,
@@ -134,17 +138,22 @@ namespace BattleFortress
         /// <summary>
         /// 通用炮塔（迫击炮/小炮塔/弓箭塔等一切 AttackModule 朝炮）：炮塔转向玩家，
         /// 每个 AttackInstantiationPoint 炮口朝玩家发射；炮管 Cannon_Holder 后坐。
-        /// projPath=弹体 Resources 路径，多炮口模型（如弓箭塔 4 炮口）自动齐射。
+        /// projPath=弹体完整 Resources 路径（用 ProjArrowPath / ProjShellPath 等语义常量），
+        /// 多炮口模型（如弓箭塔 4 炮口）自动齐射；projScale=参考伤害下的弹体世界直径（米）。
         /// </summary>
         public static EnemyAttackDef Turret(string projPath, float cd, float range,
-            float projSpeed, float projLife, float projScale, float spread = 0f) => new EnemyAttackDef
+            float projSpeed, float projLife, float projScale, float spread = 0f)
+        {
+            bool modelShell = projPath == ProjectileVisual.ShellPath; // danyao2 黑色弹壳模型
+            return new EnemyAttackDef
         {
             Kind = EnemyAttackKind.Projectile,
             FireMode = EnemyFireMode.Aimed,
             Cd = cd, Range = range,
-            ProjPath = ProjDir + projPath,
+            ProjPath = projPath,
             Volley = 1, SpreadAngle = spread,
             ProjSpeed = projSpeed, ProjLife = projLife, ProjScale = projScale,
+            ProjRawSize = modelShell ? ProjectileVisual.ShellRawSize : 1f, TintShell = modelShell,
             MuzzleNode = GameConfig.Ai.EnemyMuzzleNode,
             MuzzleHeight = GameConfig.Ai.EnemyTurretMuzzleHeight,
             AimAtPlayer = true,
@@ -152,6 +161,29 @@ namespace BattleFortress
             BarrelNode = GameConfig.Ai.EnemyBarrelNode,
             RecoilDist = GameConfig.Ai.EnemyTurretRecoilDist,
             RecoilTime = GameConfig.Ai.EnemyTurretRecoilTime,
+            HideNodes = new[] { "UI_Elements", "VisualEffects" },
+            Sfx = SfxKeys.Cannon
+        };
+        }
+
+        /// <summary>
+        /// Boss 迫击炮（T2）：车顶一圈固定多联装炮管（InstantiationPoint），不转向、无后坐，
+        /// 冷却好后所有炮管朝玩家抛射重弹（FireAimed 会逐炮口算朝玩家的发射角）。
+        /// </summary>
+        public static EnemyAttackDef BossMortar(float cd, float range, float projSpeed, float projLife, float projScale)
+            => new EnemyAttackDef
+        {
+            Kind = EnemyAttackKind.Projectile,
+            FireMode = EnemyFireMode.Aimed,
+            Cd = cd, Range = range,
+            ProjPath = ProjShellPath,
+            Volley = 1, SpreadAngle = 0f,
+            ProjSpeed = projSpeed, ProjLife = projLife, ProjScale = projScale,
+            ProjRawSize = ProjectileVisual.ShellRawSize, TintShell = true,
+            MuzzleNode = GameConfig.Ai.BossMortarMuzzleNode,
+            MuzzleHeight = GameConfig.Ai.EnemyTurretMuzzleHeight,
+            AimAtPlayer = false, TurretNode = null, BarrelNode = null, // 固定炮管，不做转向/后坐
+            RecoilDist = 0f, RecoilTime = 0f,
             HideNodes = new[] { "UI_Elements", "VisualEffects" },
             Sfx = SfxKeys.Cannon
         };
@@ -215,7 +247,7 @@ namespace BattleFortress
         // ---------------- Projectile ----------------
         private static void FireVolley(EnemyUnit e, EnemyAttackDef def, float dx, float dz, float dl, Transform parent)
         {
-            var tpl = LoadProj(def.ProjPath);
+            var tpl = ProjectileVisual.Load(def.ProjPath);
             if (tpl == null) return;
 
             var rig = e.GetComponent<EnemyAttackRig>();
@@ -297,7 +329,10 @@ namespace BattleFortress
                 float dirX = Mathf.Sin(ang), dirZ = Mathf.Cos(ang);
 
                 var go = ObjectPool.Spawn(tpl, origin, Quaternion.identity, parent);
-                go.transform.localScale = new Vector3(def.ProjScale, def.ProjScale, def.ProjScale);
+                // 世界直径 = 标称直径 × 伤害体积倍率，再按模型原始尺寸换算 localScale
+                float local = ProjectileVisual.ToLocalScale(def.ProjScale * DamageSizeMul(dmg), def.ProjRawSize);
+                go.transform.localScale = new Vector3(local, local, local);
+                if (def.TintShell) ProjectileVisual.TintShell(go);
                 var proj = go.GetComponent<Projectile>();
                 if (proj == null) proj = go.AddComponent<Projectile>();
                 proj.Init(dirX, dirZ, dmg, def.ProjSpeed, def.ProjLife);
@@ -323,13 +358,14 @@ namespace BattleFortress
         }
 
         // ---------------- 工具 ----------------
-        private static GameObject LoadProj(string path)
+        /// <summary>伤害→弹体体积倍率：参考伤害时为 1，伤害越大弹越大（上下限来自 GameConfig.Ai）</summary>
+        private static float DamageSizeMul(float dmg)
         {
-            if (string.IsNullOrEmpty(path)) return null;
-            if (_projCache.TryGetValue(path, out var tpl)) return tpl;
-            tpl = Resources.Load<GameObject>(path);
-            _projCache[path] = tpl;
-            return tpl;
+            float m = dmg / Mathf.Max(0.01f, GameConfig.Ai.ProjSizeRefDmg);
+            return Mathf.Clamp(m, GameConfig.Ai.ProjSizeMin, GameConfig.Ai.ProjSizeMax);
         }
+
     }
 }
+
+

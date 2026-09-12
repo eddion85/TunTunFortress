@@ -1,4 +1,4 @@
-namespace BattleFortress
+﻿namespace BattleFortress
 {
     /// <summary>
     /// 普通兵的移动 AI 模式（新增行为时在这里扩展，EnemySteer 里加对应分支）。
@@ -151,7 +151,7 @@ namespace BattleFortress
             Key = "arche_tower", Hp = 45, Dmg = 3, Exp = 20, Prog = 9,
             Speed = 1.8f, Size = 2, Scale = 0.2f, HasWheels = true,
             Ai = EnemyAi.Chase,
-            Combat = EnemyCombat.Turret("Proj_Arrow", 3.2f, 14f, 11f, 3f, 0.6f, 4f),
+            Combat = EnemyCombat.Turret(EnemyCombat.ProjArrowPath, 3.2f, 14f, 11f, 3f, 0.6f, 4f),
             PrefabPath = "art/models/enemy/Mob_ArcheTower"
         };
 
@@ -161,7 +161,7 @@ namespace BattleFortress
             Key = "mortar_tower", Hp = 55, Dmg = 6, Exp = 24, Prog = 10,
             Speed = 1.6f, Size = 2, Scale = 0.2f, HasWheels = true,
             Ai = EnemyAi.Chase,
-            Combat = EnemyCombat.Turret("Proj_CannonBall", 4f, 16f, 9f, 4f, 0.7f),
+            Combat = EnemyCombat.Turret(EnemyCombat.ProjShellPath, 4f, 16f, 9f, 4f, 0.7f),
             PrefabPath = "art/models/enemy/Mob_MortarTower"
         };
 
@@ -171,7 +171,7 @@ namespace BattleFortress
             Key = "small_cannon", Hp = 35, Dmg = 4, Exp = 18, Prog = 9,
             Speed = 2.0f, Size = 2, Scale = 0.2f, HasWheels = true,
             Ai = EnemyAi.Chase,
-            Combat = EnemyCombat.Turret("Proj_CannonBall", 2.6f, 12f, 13f, 2.5f, 0.55f),
+            Combat = EnemyCombat.Turret(EnemyCombat.ProjShellPath, 2.6f, 12f, 13f, 2.5f, 0.55f),
             PrefabPath = "art/models/enemy/Mob_SmallCannon"
         };
 
@@ -189,11 +189,51 @@ namespace BattleFortress
             Phase2At = 0.5f, AppearTime = 0f
         };
 
+        // -------- 车辆系 Boss（静态 glb：Wheels 车轮滚动 + AttackModule 炮塔/炮口 + HPBar_Bar 血条锚点） --------
+        /// <summary>T0 钻车 Boss：单炮塔直瞄炮，带钻头，逼近中距离开火，血量中等、移速较快</summary>
+        public static EnemyDef BossT0Drill() => new EnemyDef
+        {
+            Key = "boss_t0_drill", IsBoss = true,
+            Hp = 420, Dmg = 10, Exp = 140, Prog = 45,
+            Speed = 2.6f, Size = 3, Scale = 0.20f, HasWheels = true,
+            Ai = EnemyAi.Chase,
+            Combat = EnemyCombat.Turret(EnemyCombat.ProjShellPath, 3.6f, 15f, 11f, 3.5f, 0.8f, 4f),
+            PrefabPath = "art/models/enemy/Boss_T0_Drill",
+            HasAnimator = false,
+            Phase2At = 0.5f, AppearTime = GameConfig.Survival.BossAppearT0
+        };
+
+        /// <summary>T2 迫击炮 Boss：车顶 11 联装固定炮管齐射重弹，射程远、移速慢、血厚</summary>
+        public static EnemyDef BossT2Mortar() => new EnemyDef
+        {
+            Key = "boss_t2_mortar", IsBoss = true,
+            Hp = 640, Dmg = 12, Exp = 180, Prog = 55,
+            Speed = 2.0f, Size = 3, Scale = 0.22f, HasWheels = true,
+            Ai = EnemyAi.Chase,
+            Combat = EnemyCombat.BossMortar(5.5f, 22f, 8.5f, 5f, 0.7f),
+            PrefabPath = "art/models/enemy/Boss_T2_Mortar",
+            HasAnimator = false,
+            Phase2At = 0.5f, AppearTime = GameConfig.Survival.BossAppearT2
+        };
+
+        /// <summary>T3 双管炮 Boss：两座炮塔、双炮口齐射，射速快、弹速高，最肉</summary>
+        public static EnemyDef BossT3Double() => new EnemyDef
+        {
+            Key = "boss_t3_double", IsBoss = true,
+            Hp = 880, Dmg = 14, Exp = 240, Prog = 70,
+            Speed = 2.4f, Size = 3, Scale = 0.25f, HasWheels = true,
+            Ai = EnemyAi.Chase,
+            Combat = EnemyCombat.Turret(EnemyCombat.ProjShellPath, 2.8f, 16f, 14f, 3f, 0.75f, 6f),
+            PrefabPath = "art/models/enemy/Boss_T3_DoubleCannon",
+            HasAnimator = false,
+            Phase2At = 0.5f, AppearTime = GameConfig.Survival.BossAppearT3
+        };
+
         /// <summary>普通兵表（顺序对应 GameConfig 的 TierUnlock / MobBand 权重下标）</summary>
         public static readonly EnemyDef[] Mobs = { Sheep(), Cow(), Farmer(), Archer(), Rider(), Guncar(), SupportHp(), SupportMagnet(), ArcheTower(), MortarTower(), SmallCannon() };
 
         /// <summary>Boss 表（按 AppearTime 升序，BossAt 取当前时间已解锁的最后一个）</summary>
-        public static readonly EnemyDef[] Bosses = { TankBoss() };
+        public static readonly EnemyDef[] Bosses = { TankBoss(), BossT0Drill(), BossT2Mortar(), BossT3Double() };
 
         public static EnemyDef ByKey(string key)
         {
@@ -222,3 +262,4 @@ namespace BattleFortress
         }
     }
 }
+

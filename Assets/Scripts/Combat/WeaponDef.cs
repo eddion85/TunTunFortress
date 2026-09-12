@@ -20,10 +20,12 @@ namespace BattleFortress
     /// <summary>飞行弹体的外观种类（决定 AutoWeapon 用哪个弹体模板，弩箭用箭矢而非炮弹）</summary>
     public enum ProjectileKind
     {
-        /// <summary>圆形炮弹（默认，侧炮/正面炮/火箭炮）</summary>
+        /// <summary>弹壳形炮弹（正面炮/火箭炮等大炮，danyao2）</summary>
         Cannon = 0,
         /// <summary>箭矢（车侧弩箭）</summary>
-        Arrow = 1
+        Arrow = 1,
+        /// <summary>球形炮弹（侧方排炮，danyao1）</summary>
+        SideShell = 2
     }
 
     /// <summary>
@@ -101,6 +103,7 @@ namespace BattleFortress
                 BlindFront = GameConfig.SideBlindCone,
                 BossFocus = true,
                 ShellScale = GameConfig.SideShellScale,
+                ProjKind = ProjectileKind.SideShell,
                 FlightTrail = false,
                 TrailInterval = 0f,
                 TrailFxScale = 0f,
