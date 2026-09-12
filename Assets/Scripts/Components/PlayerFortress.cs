@@ -28,6 +28,11 @@ namespace BattleFortress
         [SerializeField] private GameObject tier2;
         [SerializeField] private GameObject tier3;
 
+        [Header("Wheel Spin (Drive node wheels rotate with movement)")]
+        [SerializeField] private string driveNodeName = "Drive";
+        [SerializeField] private Vector3 wheelSpinAxis = new Vector3(1f, 0f, 0f);
+        [SerializeField] private int wheelSpinSign = 1;
+
         [Header("点地移动（点击/按住屏幕空地自动走过去）")]
         [SerializeField] private bool useTapToMove = true;   // 关掉则回退到旧摇杆模式
         [SerializeField] private float arriveDistance = 0.35f; // 到点多少米内停下
@@ -106,6 +111,7 @@ namespace BattleFortress
         private void OnEnable()
         {
             _tiers = new[] { tier0, tier1, tier2, tier3 };
+            BuildWheelRigs(); // 每个形态挂专用车轮滚动（只转 Drive 下轮子，未激活形态不跑 Update）
             BuildFrontCannon(); // 尽早隐藏模型内炮节点（dbdp），保证首帧就不显示
             if (_auto == null) _auto = GetComponent<AutoWeapon>();
             BuildWeaponRigs();  // 注册武器挂点（默认空挂点，装备后才显示模型）
@@ -196,6 +202,22 @@ namespace BattleFortress
         }
 
         /// <summary>当前激活形态的根（形态切换时挂点委托实时取它）</summary>
+        /// <summary>
+        /// 给每个形态(tier)根物体各挂一个 PlayerWheelRig 并绑定其 Drive 节点。
+        /// 未激活形态的 Update 不执行，所以只有当前形态的轮子会转，换阶无需重新绑定。
+        /// </summary>
+        private void BuildWheelRigs()
+        {
+            if (_tiers == null || string.IsNullOrEmpty(driveNodeName)) return;
+            for (int i = 0; i < _tiers.Length; i++)
+            {
+                if (_tiers[i] == null) continue;
+                var rig = _tiers[i].GetComponent<PlayerWheelRig>();
+                if (rig == null) rig = _tiers[i].AddComponent<PlayerWheelRig>();
+                rig.Setup(driveNodeName, wheelSpinAxis, wheelSpinSign);
+            }
+        }
+
         private GameObject ActiveTier()
         {
             if (_tiers == null) return null;
