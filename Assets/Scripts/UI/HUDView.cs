@@ -77,6 +77,14 @@ namespace BattleFortress
 
         private void Update()
         {
+            RefreshBars();
+            RefreshLabels();
+            StepFloatTips(Time.deltaTime);
+        }
+
+        /// <summary>三条进度条：血量（低血闪烁）、经验、Boss 来袭倒计时（Boss 存活时常亮满格）</summary>
+        private void RefreshBars()
+        {
             if (hpFill != null)
             {
                 float r = Mathf.Clamp01(GS.Hp / Mathf.Max(1f, GS.MaxHp));
@@ -89,7 +97,6 @@ namespace BattleFortress
 
             if (expFill != null) expFill.fillAmount = Mathf.Clamp01(GS.Exp / Mathf.Max(1f, GS.ExpNeed));
 
-            // 第三条：Boss 来袭倒计时（Boss 存活时常亮满格）
             if (progFill != null)
             {
                 if (GS.BossAlive) progFill.fillAmount = 1f;
@@ -99,7 +106,11 @@ namespace BattleFortress
                     progFill.fillAmount = Mathf.Clamp01((GS.Elapsed - GS.BossWindowStart) / win);
                 }
             }
+        }
 
+        /// <summary>全部数值文字：血量/经验/存活时间/等级阶数/击杀/金币/Boss 倒计时/连击</summary>
+        private void RefreshLabels()
+        {
             if (hpLabel != null) hpLabel.text = Mathf.CeilToInt(GS.Hp) + " / " + GS.MaxHp;
             if (expLabel != null) expLabel.text = "EXP " + Mathf.FloorToInt(GS.Exp) + " / " + GS.ExpNeed;
 
@@ -127,9 +138,11 @@ namespace BattleFortress
                 comboLabel.gameObject.SetActive(show);
                 if (show) comboLabel.text = "连击 x" + GS.Combo;
             }
+        }
 
-            // 浮动提示上升淡出
-            float dt = Time.deltaTime;
+        /// <summary>浮动提示逐帧上升并二次曲线淡出，寿命结束销毁</summary>
+        private void StepFloatTips(float dt)
+        {
             for (int i = _tips.Count - 1; i >= 0; i--)
             {
                 var t = _tips[i];

@@ -421,32 +421,32 @@ namespace BattleFortress
                 _tick.Clear();
                 _tick.AddRange(_fixed);
                 _tick.AddRange(_dynamic.Values);
-                for (int i = 0; i < _tick.Count; i++)
-                {
-                    var m = _tick[i];
-                    if (m.Def == null || m.MuzzleGetter == null) continue;
-                    // 门控未通过（如正面炮未加装）：不转冷却也不开火
-                    if (m.Gate != null && !m.Gate()) continue;
-
-                    m.Cd -= dt;
-                    if (m.Cd > 0f) continue;
-                    // 手动武器（攻城锤）：冷却照常恢复，但不自动选敌开火，只响应 TryManual
-                    if (m.Def.Manual) continue;
-
-                    var t = PickTarget(m, pos);
-                    if (t != null)
-                    {
-                        // 间隔 = 基础间隔 × 全局攻速，再用 MinCd 兜底，保证不会「看见敌人就连发」
-                        m.Cd = Mathf.Max(m.Def.MinCd, m.Def.Cooldown * GS.CdMul);
-                        Fire(m, t);
-                    }
-                    else m.Cd = 0.25f; // 没目标时短间隔重试，不浪费一整轮冷却
-                }
+                for (int i = 0; i < _tick.Count; i++) TickAutoFire(_tick[i], pos, dt);
             }
 
             StepShells(dt);
             StepRecoils(dt);
             StepThrusts(dt);
+        }
+
+        /// <summary>单个自动挂点的一帧：门控 → 转冷却 → 选敌开火（手动武器只转冷却，不自动开火）</summary>
+        private void TickAutoFire(Mount m, Vector3 pos, float dt)
+        {
+            if (m.Def == null || m.MuzzleGetter == null) return;
+            if (m.Gate != null && !m.Gate()) return; // 门控未过（如正面炮未加装）：不转冷却也不开火
+
+            m.Cd -= dt;
+            if (m.Cd > 0f) return;
+            if (m.Def.Manual) return; // 手动武器（攻城锤）只响应 TryManual
+
+            var target = PickTarget(m, pos);
+            if (target != null)
+            {
+                // 间隔 = 基础间隔 × 全局攻速，再用 MinCd 兜底，保证不会「看见敌人就连发」
+                m.Cd = Mathf.Max(m.Def.MinCd, m.Def.Cooldown * GS.CdMul);
+                Fire(m, target);
+            }
+            else m.Cd = 0.25f; // 没目标时短间隔重试，不浪费一整轮冷却
         }
 
         /// <summary>推进所有在飞炮弹：Direct 追单体，Area 追地面落点并在到达/到期时爆炸</summary>
@@ -473,64 +473,68 @@ namespace BattleFortress
                 bool reached = dl <= arrive;
                 bool expired = s.Life <= 0f;
 
-                if (d.Impact == ImpactType.Direct)
+                // 到达/到期结算：直射打单体、范围炸落点；返回 true 表示弹已回收
+                if (TryResolveImpact(s, d, sp, reached, expired, alive))
                 {
-                    // 直射弹：目标没了/寿命到 → 直接消失；贴到目标 → 单体结算
-                    if (!alive || expired)
-                    {
-                        ObjectPool.Despawn(s.gameObject);
-                        _shots.RemoveAt(i);
-                        continue;
-                    }
-                    if (reached)
-                    {
-                        var tp = s.Target.transform.position;
-                        DamageKit.DirectHit(s.Target, s.Dmg, tp, d.BigDamageNumber,
-                            d.ImpactFxScale, d.RingFxScale, d.ImpactShake, d.ImpactSfx);
-                        ObjectPool.Despawn(s.gameObject);
-                        _shots.RemoveAt(i);
-                        continue;
-                    }
-                }
-                else // ImpactType.Area：飞到落点地面爆炸；目标中途死了也照样炸最后落点
-                {
-                    if (reached || expired)
-                    {
-                        Vector3 impact = reached ? Shell.GroundPoint(s.Aim) : Shell.GroundPoint(sp);
-                        DamageKit.Explode(impact, d.ImpactRadius, s.Dmg, d.BigDamageNumber,
-                            d.ImpactFxScale, d.RingFxScale, d.ImpactShake, d.ImpactSfx);
-                        ObjectPool.Despawn(s.gameObject);
-                        _shots.RemoveAt(i);
-                        continue;
-                    }
+                    _shots.RemoveAt(i);
+                    continue;
                 }
 
-                // 朝落点直线推进水平位置；高度走抛物线：出膛高度线性归零 + 4h·t(1-t) 拱顶，
-                // ArcHeight>0（如 Slot_Top 火箭炮）时先上升、过半程后俯冲突击；=0 时退化为直线下压
-                float step = d.ShellSpeed * dt;
-                if (dl < 0.0001f) dl = 1f;
-                Vector3 before = sp;
-                sp.x += (dx / dl) * step;
-                sp.z += (dz / dl) * step;
-                float t = 1f - Mathf.Clamp01(dl / s.StartDist); // 0=出膛 1=落地
-                sp.y = s.StartY * (1f - t) + 4f * d.ArcHeight * t * (1f - t);
-                s.transform.position = sp;
+                AdvanceShell(s, d, sp, dx, dz, dl, dt);
+            }
+        }
 
-                // 弹体顺着瞬时速度方向（上升时仰、下落时俯），抛物线更自然
-                Vector3 vel = sp - before;
-                if (vel.sqrMagnitude > 0.000001f)
-                    s.transform.rotation = Quaternion.LookRotation(vel.normalized, Vector3.up);
+        /// <summary>弹体命中/到期结算：Direct 打单体，Area 在落点爆炸。返回 true 表示已回收该弹</summary>
+        private bool TryResolveImpact(Shell s, WeaponDef d, Vector3 sp, bool reached, bool expired, bool alive)
+        {
+            if (d.Impact == ImpactType.Direct)
+            {
+                // 直射弹：目标没了/寿命到 → 直接消失；贴到目标 → 单体结算
+                if (!alive || expired) { ObjectPool.Despawn(s.gameObject); return true; }
+                if (!reached) return false;
+                DamageKit.DirectHit(s.Target, s.Dmg, s.Target.transform.position, d.BigDamageNumber,
+                    d.ImpactFxScale, d.RingFxScale, d.ImpactShake, d.ImpactSfx);
+                ObjectPool.Despawn(s.gameObject);
+                return true;
+            }
 
-                // 飞行火焰拖尾：沿弹道持续留火团，让范围炮轨迹清晰可见
-                if (d.FlightTrail && d.TrailInterval > 0f)
+            // ImpactType.Area：飞到落点地面爆炸；目标中途死了也照样炸最后落点
+            if (!reached && !expired) return false;
+            Vector3 impact = reached ? Shell.GroundPoint(s.Aim) : Shell.GroundPoint(sp);
+            DamageKit.Explode(impact, d.ImpactRadius, s.Dmg, d.BigDamageNumber,
+                d.ImpactFxScale, d.RingFxScale, d.ImpactShake, d.ImpactSfx);
+            ObjectPool.Despawn(s.gameObject);
+            return true;
+        }
+
+        /// <summary>推进一颗在飞弹：水平直奔落点、高度走抛物线、朝向顺速度、按间隔留火焰拖尾</summary>
+        private void AdvanceShell(Shell s, WeaponDef d, Vector3 sp, float dx, float dz, float dl, float dt)
+        {
+            // 朝落点直线推进水平位置；高度走抛物线：出膛高度线性归零 + 4h·t(1-t) 拱顶，
+            // ArcHeight>0（如 Slot_Top 火箭炮）时先上升、过半程后俯冲突击；=0 时退化为直线下压
+            float step = d.ShellSpeed * dt;
+            if (dl < 0.0001f) dl = 1f;
+            Vector3 before = sp;
+            sp.x += (dx / dl) * step;
+            sp.z += (dz / dl) * step;
+            float t = 1f - Mathf.Clamp01(dl / s.StartDist); // 0=出膛 1=落地
+            sp.y = s.StartY * (1f - t) + 4f * d.ArcHeight * t * (1f - t);
+            s.transform.position = sp;
+
+            // 弹体顺着瞬时速度方向（上升时仰、下落时俯），抛物线更自然
+            Vector3 vel = sp - before;
+            if (vel.sqrMagnitude > 0.000001f)
+                s.transform.rotation = Quaternion.LookRotation(vel.normalized, Vector3.up);
+
+            // 飞行火焰拖尾：沿弹道持续留火团，让范围炮轨迹清晰可见
+            if (d.FlightTrail && d.TrailInterval > 0f)
+            {
+                s.TrailT -= dt;
+                if (s.TrailT <= 0f)
                 {
-                    s.TrailT -= dt;
-                    if (s.TrailT <= 0f)
-                    {
-                        s.TrailT = d.TrailInterval;
-                        // trail:true 走独立拖尾对象池，不挤占受击/爆炸等战斗特效名额
-                        Fx.PlayVfx(VfxKeys.FireBall, sp, d.TrailFxScale, -1f, -1f, -1f, -1f, true);
-                    }
+                    s.TrailT = d.TrailInterval;
+                    // trail:true 走独立拖尾对象池，不挤占受击/爆炸等战斗特效名额
+                    Fx.PlayVfx(VfxKeys.FireBall, sp, d.TrailFxScale, -1f, -1f, -1f, -1f, true);
                 }
             }
         }

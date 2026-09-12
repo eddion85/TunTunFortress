@@ -211,21 +211,10 @@ namespace BattleFortress
                 Level += 1;
                 ExpNeed = NeedFor(Level);
 
-                if (Array.IndexOf(GameConfig.EvolveLevels, Level) >= 0 && Stage < 3)
-                {
-                    Stage += 1;
-                    float ratio = MaxHp > 0 ? Hp / MaxHp : 1f;
-                    MaxHp = Mathf.Round(GameConfig.MaxHp * Meta.HpMul() * HpBonusMul * GameConfig.StageHp[Stage]);
-                    // 进化按当前血量比例放大，不再免费回满
-                    Hp = Mathf.Max(1, Mathf.Round(MaxHp * ratio));
-                    // 正面炮不再随进阶自动解锁：只有商店主动加装才显示 dbdp
-                    GameBus.Emit(GameEvents.Evolve, Stage);
-                    AudioKit.PlaySfx(SfxKeys.Evolve);
-                }
+                TryEvolve(); // 命中进化等级（4/6/8）时升阶、按比例扩血并广播
 
-                // 升级只发点数，不打断战斗；玩家自己点强化按钮消费
+                GameBus.Emit(GameEvents.LevelUp, Level); // 升级不打断战斗；奖励统一由击杀里程碑自动弹出
                 // 升级不再发放强化点：奖励统一由击杀里程碑自动弹出
-                GameBus.Emit(GameEvents.LevelUp, Level);
                 AudioKit.PlaySfx(SfxKeys.Levelup);
             }
         }
@@ -234,6 +223,19 @@ namespace BattleFortress
         /// 每消灭一个敌人：累计击杀数与金币（无尽生存没有通关配额）。
         /// coinBonus 为敌种 prog 值（敌种表配置），Boss 另算。
         /// </summary>
+        /// <summary>命中进化等级且未满阶时：阶数+1、最大生命按 StageHp 放大，当前血量等比保留（不免费回满）</summary>
+        private static void TryEvolve()
+        {
+            if (Array.IndexOf(GameConfig.EvolveLevels, Level) < 0 || Stage >= 3) return;
+            Stage += 1;
+            float ratio = MaxHp > 0 ? Hp / MaxHp : 1f;
+            MaxHp = Mathf.Round(GameConfig.MaxHp * Meta.HpMul() * HpBonusMul * GameConfig.StageHp[Stage]);
+            Hp = Mathf.Max(1, Mathf.Round(MaxHp * ratio));
+            // 装备不随进阶自动解锁（如正面炮只有商店主动加装才显示 dbdp）
+            GameBus.Emit(GameEvents.Evolve, Stage);
+            AudioKit.PlaySfx(SfxKeys.Evolve);
+        }
+
         public static void AddKill(int coinBonus, bool isBoss)
         {
             if (Over) return;

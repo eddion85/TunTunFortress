@@ -174,24 +174,30 @@ namespace BattleFortress
 
             switch (def.Kind)
             {
-                case EnemyAttackKind.Projectile:
-                    e.ShootCd -= dt;
-                    if (dl > def.Range || e.ShootCd > 0f) break;
-                    // 侧向炮必须先把车身侧过来（与玩家近似并排），没到位不开火也不进冷却
-                    if (def.FireMode == EnemyFireMode.Sideways && !BroadsideReady(e, dx, dz, dl)) break;
-                    e.ShootCd = def.Cd;
-                    FireVolley(e, def, dx, dz, dl, parent);
-                    break;
-
-                case EnemyAttackKind.Slam:
-                    e.SlamCd -= dt;
-                    if (dl <= def.SlamRadius && e.SlamCd <= 0f)
-                    {
-                        e.SlamCd = def.Cd;
-                        DoSlam(e, def);
-                    }
-                    break;
+                case EnemyAttackKind.Projectile: TickProjectile(e, def, dx, dz, dl, dt, parent); break;
+                case EnemyAttackKind.Slam: TickSlam(e, def, dl, dt); break;
             }
+        }
+
+        /// <summary>远程攻击一帧：转冷却 → 射程/侧向姿态门控 → 齐射</summary>
+        private static void TickProjectile(EnemyUnit e, EnemyAttackDef def,
+            float dx, float dz, float dl, float dt, Transform parent)
+        {
+            e.ShootCd -= dt;
+            if (dl > def.Range || e.ShootCd > 0f) return;
+            // 侧向炮必须先把车身侧过来（与玩家近似并排），没到位不开火也不进冷却
+            if (def.FireMode == EnemyFireMode.Sideways && !BroadsideReady(e, dx, dz, dl)) return;
+            e.ShootCd = def.Cd;
+            FireVolley(e, def, dx, dz, dl, parent);
+        }
+
+        /// <summary>近身 AoE 一帧：转冷却，进圈且冷却好就砸地</summary>
+        private static void TickSlam(EnemyUnit e, EnemyAttackDef def, float dl, float dt)
+        {
+            e.SlamCd -= dt;
+            if (dl > def.SlamRadius || e.SlamCd > 0f) return;
+            e.SlamCd = def.Cd;
+            DoSlam(e, def);
         }
 
         /// <summary>Sideways 开火姿态判定：玩家方向与车身正侧方向的夹角是否在 BroadsideAngle 内</summary>

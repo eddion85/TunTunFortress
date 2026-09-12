@@ -572,125 +572,152 @@ namespace BattleFortress
             float dt = Mathf.Min(Time.deltaTime, GameConfig.MaxDelta);
             if (_cd > 0f) _cd -= dt;
             if (_edgeTipT > 0f) _edgeTipT -= dt;
-            SyncTopRocket();    // 先算火箭炮需求，供 dbdp 互斥判断
-            SyncRam();          // 车头攻城锤挂装与战斗挂点同步
-            SyncFrontCannon(); // 升级卡/商店/进化解锁后立刻显示，重开后自动隐藏
-            SyncCrossbows();   // 按进化阶段同步两侧弩箭数量
+
+            SyncEquipment(); // 装备外观/战斗挂点每帧与 GS 对齐（内部同路径 no-op，开销极小）
             if (GS.Over || GS.Paused) { _marker?.Hide(); return; }
             _marker?.Tick(dt);
 
-            // 无敌 = 进化金光演出 或 复活保护（复活时长由配置驱动）
-            GS.Invincible = _evolveT > 0f || GS.ReviveInvincibleT > 0f;
-            if (_evolveT > 0f)
-            {
-                _evolveT -= dt;
-                _evolveTick -= dt;
-                if (_evolveTick <= 0f)
-                {
-                    _evolveTick = GameConfig.EvolveFxInterval;
-                    var ep = transform.position;
-                    Fx.PlayVfx(VfxKeys.StarSpark,
-                        ep.x + (Random.value * 2f - 1f), ep.y + 1f + Random.value, ep.z + (Random.value * 2f - 1f), 1.2f);
-                    Fx.PlayVfx(VfxKeys.LightBeam, ep.x, ep.y + 1.5f, ep.z, 2.2f);
-                }
-            }
-
-            // 移动输入：默认点地移动；useTapToMove=false 时回退旧摇杆
-            bool moving = useTapToMove ? PollTapMove() : PollJoystick();
-
-            if (_dash > 0f)
-            {
-                _dash -= dt;
-                _dashTick -= dt;
-                if (_dashTick <= 0f)
-                {
-                    _dashTick = GameConfig.DashFxInterval;
-                    var cp = transform.position;
-                    Fx.PlayVfx(VfxKeys.SpeedLine, cp.x, cp.y + 1f, cp.z, 2.2f);
-                }
-            }
+            TickEvolveFx(dt);
+            bool moving = useTapToMove ? PollTapMove() : PollJoystick(); // 默认点地移动，关掉回退摇杆
+            TickDashFx(dt);
 
             if (!moving && _dash <= 0f) return;
 
+            Vector3 pos = StepPosition(dt);
+            EmitMoveTrail(pos, dt);
+            EmitTrackMarks(pos, dt);
+            TryEdgeTip(pos);
+            FaceMovingDir();
+            DashCrushEnemies(pos);
+        }
+
+        /// <summary>同步全部动态装备：火箭炮（先算，供 dbdp 互斥）→ 攻城锤 → 模型内炮 → 两侧弩箭</summary>
+        private void SyncEquipment()
+        {
+            SyncTopRocket();
+            SyncRam();
+            SyncFrontCannon();
+            SyncCrossbows();
+        }
+
+        /// <summary>当前进化阶段在 StageScale 表中的夹取下标</summary>
+        private static int StageIndex() => Mathf.Clamp(GS.Stage, 0, GameConfig.StageScale.Length - 1);
+
+        /// <summary>进化金光演出：无敌标记 + 按间隔在车身周围放光粒/光束</summary>
+        private void TickEvolveFx(float dt)
+        {
+            GS.Invincible = _evolveT > 0f || GS.ReviveInvincibleT > 0f; // 进化演出 或 复活保护
+            if (_evolveT <= 0f) return;
+
+            _evolveT -= dt;
+            _evolveTick -= dt;
+            if (_evolveTick > 0f) return;
+            _evolveTick = GameConfig.EvolveFxInterval;
+            var ep = transform.position;
+            Fx.PlayVfx(VfxKeys.StarSpark,
+                ep.x + (Random.value * 2f - 1f), ep.y + 1f + Random.value, ep.z + (Random.value * 2f - 1f), 1.2f);
+            Fx.PlayVfx(VfxKeys.LightBeam, ep.x, ep.y + 1.5f, ep.z, 2.2f);
+        }
+
+        /// <summary>冲撞剩余时间与速度线特效推进</summary>
+        private void TickDashFx(float dt)
+        {
+            if (_dash <= 0f) return;
+            _dash -= dt;
+            _dashTick -= dt;
+            if (_dashTick > 0f) return;
+            _dashTick = GameConfig.DashFxInterval;
+            var cp = transform.position;
+            Fx.PlayVfx(VfxKeys.SpeedLine, cp.x, cp.y + 1f, cp.z, 2.2f);
+        }
+
+        /// <summary>按当前输入方向与速度积分一帧位移；贴边时保留切向移动，避免斜向顶墙卡死</summary>
+        private Vector3 StepPosition(float dt)
+        {
             float boost = _dash > 0f ? GameConfig.DashSpeedMul : 1f;
             float sp = speed * GS.SpeedMul * boost;
             Vector3 pos = transform.position;
-            
-
-            // 边界钳制：贴边时保留切向移动，避免斜向顶墙时完全卡死
             pos.x = GameConfig.ClampArena(pos.x + _dir.x * sp * dt);
             pos.z = GameConfig.ClampArena(pos.z + _dir.z * sp * dt);
             pos.y = 0f;
             transform.position = pos;
+            return pos;
+        }
 
-            // 移动冒烟拖尾：按固定间隔从车尾吐一团烟，贴地扩散淡出（参数全部配置驱动）
+        /// <summary>移动冒烟拖尾：固定间隔从车尾吐烟，体型越大略大，冲撞时更浓（参数全部配置驱动）</summary>
+        private void EmitMoveTrail(Vector3 pos, float dt)
+        {
             _trailT -= dt;
-            if (_trailT <= 0f)
-            {
-                bool dashing = _dash > 0f;
-                _trailT = dashing ? GameConfig.TrailDashInterval : GameConfig.TrailInterval;
-                Vector3 side = new Vector3(-_dir.z, 0f, _dir.x);
-                float jitter = (Random.value * 2f - 1f) * GameConfig.TrailJitter;
-                Vector3 smokePos = pos - _dir * GameConfig.TrailBack + side * jitter;
-                smokePos.y = 0.25f;
-                // 体型越大烟团略大；冲撞时烟更浓更大；每团加少量随机避免机械重复
-                int st = Mathf.Clamp(GS.Stage, 0, GameConfig.StageScale.Length - 1);
-                float sizeMul = Mathf.Sqrt(GameConfig.StageScale[st]) * (dashing ? 1.5f : 1f) * (0.85f + Random.value * 0.3f);
-                Fx.PlayTrailSmoke(smokePos, GameConfig.TrailScale * sizeMul);
-            }
+            if (_trailT > 0f) return;
 
-            // 地面车辙：车尾左右各落一个土黄印，位置取自真实行驶轨迹，转弯时轨迹自然弯曲
+            bool dashing = _dash > 0f;
+            _trailT = dashing ? GameConfig.TrailDashInterval : GameConfig.TrailInterval;
+            Vector3 side = new Vector3(-_dir.z, 0f, _dir.x);
+            float jitter = (Random.value * 2f - 1f) * GameConfig.TrailJitter;
+            Vector3 smokePos = pos - _dir * GameConfig.TrailBack + side * jitter;
+            smokePos.y = 0.25f;
+            float sizeMul = Mathf.Sqrt(GameConfig.StageScale[StageIndex()]) * (dashing ? 1.5f : 1f) * (0.85f + Random.value * 0.3f);
+            Fx.PlayTrailSmoke(smokePos, GameConfig.TrailScale * sizeMul);
+        }
+
+        /// <summary>地面车辙：车尾左右各落一个土黄印，位置取自真实行驶轨迹，转弯时轨迹自然弯曲</summary>
+        private void EmitTrackMarks(Vector3 pos, float dt)
+        {
             _trackT -= dt;
-            if (_trackT <= 0f)
+            if (_trackT > 0f) return;
+            _trackT = GameConfig.TrackInterval;
+
+            float bodyMul = Mathf.Sqrt(GameConfig.StageScale[StageIndex()]); // 体型越大车辙间距/印子越大
+            Vector3 sideVec = new Vector3(-_dir.z, 0f, _dir.x);
+            float sideDist = GameConfig.TrackSide * bodyMul;
+            float backDist = GameConfig.TrackBack * bodyMul;
+            float screenAng = MoveScreenAngle(_dir);
+            float markScale = GameConfig.TrackScale * bodyMul;
+            for (int k = -1; k <= 1; k += 2)
             {
-                _trackT = GameConfig.TrackInterval;
-                int stk = Mathf.Clamp(GS.Stage, 0, GameConfig.StageScale.Length - 1);
-                float bodyMul = Mathf.Sqrt(GameConfig.StageScale[stk]); // 体型越大车辙间距/印子越大
-                Vector3 sideVec = new Vector3(-_dir.z, 0f, _dir.x);
-                float sideDist = GameConfig.TrackSide * bodyMul;
-                float backDist = GameConfig.TrackBack * bodyMul;
-                float screenAng = MoveScreenAngle(_dir);
-                float markScale = GameConfig.TrackScale * bodyMul;
-                for (int k = -1; k <= 1; k += 2)
-                {
-                    Vector3 mp = pos - _dir * backDist + sideVec * (k * sideDist);
-                    mp.y = 0.12f;
-                    Fx.PlayTrackMark(mp, screenAng, markScale, GameConfig.TrackStretch);
-                }
+                Vector3 mp = pos - _dir * backDist + sideVec * (k * sideDist);
+                mp.y = 0.12f;
+                Fx.PlayTrackMark(mp, screenAng, markScale, GameConfig.TrackStretch);
             }
+        }
 
-            // 朝墙走且已贴边 → 非阻断提示（自动上浮淡出，不暂停游戏；节流防刷屏）
-            bool hitX = GameConfig.ArenaBounded && ((_dir.x > 0.01f && pos.x >= GameConfig.ArenaHalf - edgeEps) || (_dir.x < -0.01f && pos.x <= -GameConfig.ArenaHalf + edgeEps));
-            bool hitZ = GameConfig.ArenaBounded && ((_dir.z > 0.01f && pos.z >= GameConfig.ArenaHalf - edgeEps) || (_dir.z < -0.01f && pos.z <= -GameConfig.ArenaHalf + edgeEps));
-            if ((hitX || hitZ) && _edgeTipT <= 0f)
+        /// <summary>朝边界走且已贴边 → 非阻断提示（自动上浮淡出，不暂停游戏；节流防刷屏）</summary>
+        private void TryEdgeTip(Vector3 pos)
+        {
+            if (!GameConfig.ArenaBounded || _edgeTipT > 0f) return;
+            bool hitX = (_dir.x > 0.01f && pos.x >= GameConfig.ArenaHalf - edgeEps) || (_dir.x < -0.01f && pos.x <= -GameConfig.ArenaHalf + edgeEps);
+            bool hitZ = (_dir.z > 0.01f && pos.z >= GameConfig.ArenaHalf - edgeEps) || (_dir.z < -0.01f && pos.z <= -GameConfig.ArenaHalf + edgeEps);
+            if (!hitX && !hitZ) return;
+            _edgeTipT = edgeTipCooldown;
+            GameBus.Emit(GameEvents.Float, "已到地图边界");
+        }
+
+        /// <summary>移动时朝向输入方向（叠加模型正前方修正角）</summary>
+        private void FaceMovingDir()
+        {
+            if (_dir.sqrMagnitude <= 0.0001f) return;
+            transform.rotation = Quaternion.LookRotation(_dir, Vector3.up) * Quaternion.Euler(0f, yawOffset, 0f);
+        }
+
+        /// <summary>冲撞头锤：对路径上非 Boss 存活敌人造成伤害并播放命中反馈 [策划书 4.1]</summary>
+        private void DashCrushEnemies(Vector3 pos)
+        {
+            if (_dash <= 0f) return;
+            float dashR = GameConfig.DashHitRadius;
+            for (int i = 0; i < Registry.Enemies.Count; i++)
             {
-                _edgeTipT = edgeTipCooldown;
-                GameBus.Emit(GameEvents.Float, "已到地图边界");
-            }
+                var e = Registry.Enemies[i];
+                if (e == null || e.Dead || e.IsBoss) continue;
+                var ep = e.transform.position;
+                float dx = ep.x - pos.x;
+                float dz = ep.z - pos.z;
+                if (dx * dx + dz * dz >= dashR * dashR) continue;
 
-            if (_dir.sqrMagnitude > 0.0001f)
-                transform.rotation = Quaternion.LookRotation(_dir, Vector3.up) * Quaternion.Euler(0f, yawOffset, 0f);
-
-            // 冲撞头锤：碾碎路径上的敌人 [策划书 4.1]
-            if (_dash > 0f)
-            {
-                for (int i = 0; i < Registry.Enemies.Count; i++)
-                {
-                    var e = Registry.Enemies[i];
-                    if (e == null || e.Dead || e.IsBoss) continue;
-                    var ep = e.transform.position;
-                    float dx = ep.x - pos.x;
-                    float dz = ep.z - pos.z;
-                    float dashR = GameConfig.DashHitRadius;
-                    if (dx * dx + dz * dz < dashR * dashR)
-                    {
-                        float cd = GameConfig.SideDmg * GameConfig.DashDmgMul * GS.DmgMul * GS.SizeFactor(e.Size());
-                        e.Hp -= cd;
-                        Fx.PopDmg(ep, cd, true);
-                        Fx.PlayVfx(VfxKeys.HitSheet, ep.x, 1f, ep.z, 1.9f);
-                        Fx.Shake(0.5f);
-                    }
-                }
+                float cd = GameConfig.SideDmg * GameConfig.DashDmgMul * GS.DmgMul * GS.SizeFactor(e.Size());
+                e.Hp -= cd;
+                Fx.PopDmg(ep, cd, true);
+                Fx.PlayVfx(VfxKeys.HitSheet, ep.x, 1f, ep.z, 1.9f);
+                Fx.Shake(0.5f);
             }
         }
         /// <summary>世界水平方向 → UI 屏幕角度（让车辙长条沿行驶方向；UI 局部 +Y 对齐屏幕移动方向）</summary>

@@ -109,36 +109,47 @@ namespace BattleFortress
             if (GS.Paused || GS.Over) return;
 
             Vector3 pp = playerNode.position;
-            Vector2 pm = ToMap(pp.x, pp.z, pp.x, pp.z); // 玩家：动态窗口下恒为中心
+            PlacePlayerMarker(ToMap(pp.x, pp.z, pp.x, pp.z)); // 玩家：动态窗口下恒为中心
+            RefreshCoord(pp);
+            int used = RefreshEnemyDots(pp);
 
-            if (marker != null)
+            for (int i = used; i < _dots.Count; i++)
+                if (_dots[i] != null) _dots[i].gameObject.SetActive(false);
+        }
+
+        /// <summary>把玩家标记放到对应像素点</summary>
+        private void PlacePlayerMarker(Vector2 pm)
+        {
+            if (marker == null) return;
+            var rt = marker.rectTransform;
+            rt.anchorMin = Vector2.zero;
+            rt.anchorMax = Vector2.zero;
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = pm;
+        }
+
+        /// <summary>坐标文本：有边界时贴边改提示语与警示色，无边界只显示坐标</summary>
+        private void RefreshCoord(Vector3 pp)
+        {
+            if (coordLabel == null) return;
+            var normal = new Color(1f, 0.914f, 0.659f);
+            if (GameConfig.ArenaBounded)
             {
-                var rt = marker.rectTransform;
-                rt.anchorMin = Vector2.zero;
-                rt.anchorMax = Vector2.zero;
-                rt.pivot = new Vector2(0.5f, 0.5f);
-                rt.anchoredPosition = pm;
+                float half = GameConfig.ArenaHalf;
+                bool edge = Mathf.Abs(pp.x) > half - 1.2f || Mathf.Abs(pp.z) > half - 1.2f;
+                coordLabel.text = edge ? "已到地图边缘" : Mathf.RoundToInt(pp.x) + " , " + Mathf.RoundToInt(pp.z);
+                coordLabel.color = edge ? new Color(1f, 0.69f, 0.63f) : normal;
             }
-
-            if (coordLabel != null)
+            else
             {
-                if (GameConfig.ArenaBounded)
-                {
-                    // 有边界：贴边时提示已到边缘
-                    float half = GameConfig.ArenaHalf;
-                    bool edge = Mathf.Abs(pp.x) > half - 1.2f || Mathf.Abs(pp.z) > half - 1.2f;
-                    coordLabel.text = edge ? "已到地图边缘" : Mathf.RoundToInt(pp.x) + " , " + Mathf.RoundToInt(pp.z);
-                    coordLabel.color = edge ? new Color(1f, 0.69f, 0.63f) : new Color(1f, 0.914f, 0.659f);
-                }
-                else
-                {
-                    // 无边界：只显示坐标
-                    coordLabel.text = Mathf.RoundToInt(pp.x) + " , " + Mathf.RoundToInt(pp.z);
-                    coordLabel.color = new Color(1f, 0.914f, 0.659f);
-                }
+                coordLabel.text = Mathf.RoundToInt(pp.x) + " , " + Mathf.RoundToInt(pp.z);
+                coordLabel.color = normal;
             }
+        }
 
-            // 敌人点位：Boss 用大红点，普通敌人小点
+        /// <summary>敌人点位：Boss 大红点、有害小怪橙点、无害小怪绿点；窗口外不画。返回本次用掉的点数</summary>
+        private int RefreshEnemyDots(Vector3 pp)
+        {
             int n = 0;
             for (int i = 0; i < Registry.Enemies.Count && n < maxDots; i++)
             {
@@ -165,9 +176,7 @@ namespace BattleFortress
                         : new Color(0.847f, 0.910f, 0.627f);       // #d8e8a0 无害
                 }
             }
-
-            for (int i = n; i < _dots.Count; i++)
-                if (_dots[i] != null) _dots[i].gameObject.SetActive(false);
+            return n;
         }
     }
 }

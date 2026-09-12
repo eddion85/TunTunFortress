@@ -126,7 +126,16 @@ namespace BattleFortress
         private static List<Card> BuildPool()
         {
             var pool = new List<Card>();
+            AddWeaponCards(pool);
+            AddBuffCards(pool);
+            AddHealCard(pool);
+            AssignCosts(pool); // 统一按类别赋金币售价（配置驱动）
+            return pool;
+        }
 
+        /// <summary>装备卡：顶部主炮位（火箭炮↔正面炮可替换）、车头攻城锤、独立副武器与其升星</summary>
+        private static void AddWeaponCards(List<Card> pool)
+        {
             // ---- 顶部/主炮位：火箭炮 与 正面直射炮可互相替换（选新自动下掉旧），不重复给已装备的同一把 ----
             pool.Add(new Card
             {
@@ -213,8 +222,11 @@ namespace BattleFortress
                 can = () => !GS.HasMine,
                 run = () => { GS.HasMine = true; }
             });
+        }
 
-            // ---- 可重复数值词条（永远可用，兜底卡池不会空） ----
+        /// <summary>可重复数值词条（永远可用，兜底卡池不会空）</summary>
+        private static void AddBuffCards(List<Card> pool)
+        {
             pool.Add(new Card
             {
                 rare = 1, icon = "art/ui/img_icon_dmg_up", cost = 0,
@@ -263,8 +275,11 @@ namespace BattleFortress
                 detail = "击杀获得的经验 ×1.2，升级/进化更快，可叠加。",
                 can = null, run = () => { GS.ExpMul *= 1.2f; }
             });
+        }
 
-            // ---- 回复卡：缺血才出现 ----
+        /// <summary>回复卡：缺血才出现</summary>
+        private static void AddHealCard(List<Card> pool)
+        {
             pool.Add(new Card
             {
                 rare = 0, icon = "art/ui/img_icon_repair", cost = 0,
@@ -274,8 +289,11 @@ namespace BattleFortress
                 can = () => GS.Hp > 0f && GS.Hp < GS.MaxHp * GameConfig.Survival.OfferHealBelowRatio,
                 run = () => { GS.Heal(30f); }
             });
+        }
 
-            // 统一按类别赋金币售价（配置驱动；个别卡可在上面单独指定 cost 覆盖）
+        /// <summary>按类别赋金币售价（个别卡已单独指定 cost 则保留）</summary>
+        private static void AssignCosts(List<Card> pool)
+        {
             for (int i = 0; i < pool.Count; i++)
             {
                 var c = pool[i];
@@ -284,8 +302,6 @@ namespace BattleFortress
                 else if (c.title == "紧急修复") c.cost = GameConfig.Survival.OfferCostHeal;
                 else c.cost = c.rare == 2 ? GameConfig.Survival.OfferCostWeapon : GameConfig.Survival.OfferCostBuff;
             }
-
-            return pool;
         }
 
         /// <summary>重新过滤可用项（每次选择后调用）</summary>

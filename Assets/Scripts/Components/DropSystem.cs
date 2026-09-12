@@ -126,30 +126,7 @@ namespace BattleFortress
 
                 if (dist < pickR)
                 {
-                    if (d.Type == DropItem.TypeCoin)
-                    {
-                        GS.Coins += d.Value;
-                        GS.AddExp(GameConfig.Drop.CoinExp);
-                        AudioKit.PlaySfx(SfxKeys.Coin);
-                        GameBus.Emit(GameEvents.Float, "+" + d.Value + " 金币");
-                        Fx.PlayVfx(VfxKeys.StarSpark, p.x, p.y + 0.6f, p.z, 1.3f);
-                    }
-                    else if (d.Type == DropItem.TypeHealthSmall || d.Type == DropItem.TypeHealthBig)
-                    {
-                        float v = d.Type == DropItem.TypeHealthBig ? EnemyDefs.Pickups.HealthBig : EnemyDefs.Pickups.HealthSmall;
-                        GS.Heal(v);
-                        AudioKit.PlaySfx(SfxKeys.Health);
-                        GameBus.Emit(GameEvents.Float, "+" + v + " HP");
-                        Fx.PlayVfx(VfxKeys.SoftCircle, p.x, p.y + 0.6f, p.z, 1.8f);
-                    }
-                    else if (d.Type == DropItem.TypeMagnet)
-                    {
-                        GS.MagnetTimer = EnemyDefs.Pickups.MagnetTime;
-                        AudioKit.PlaySfx(SfxKeys.Magnet);
-                        GameBus.Emit(GameEvents.Float, "磁力吸附!");
-                        Fx.PlayVfx(VfxKeys.RingWave, p.x, 0.3f, p.z, 2.2f);
-                    }
-
+                    ApplyPickup(d, p);
                     ObjectPool.Despawn(d.gameObject);
                     Registry.Drops.RemoveAt(i);
                     continue;
@@ -160,6 +137,34 @@ namespace BattleFortress
                     ObjectPool.Despawn(d.gameObject);
                     Registry.Drops.RemoveAt(i);
                 }
+            }
+        }
+
+        /// <summary>按掉落物类型结算一次拾取：金币/血包/磁铁各自加值、飘字与音效</summary>
+        private void ApplyPickup(DropItem d, Vector3 p)
+        {
+            if (d.Type == DropItem.TypeCoin)
+            {
+                GS.Coins += d.Value;
+                GS.AddExp(GameConfig.Drop.CoinExp);
+                AudioKit.PlaySfx(SfxKeys.Coin);
+                GameBus.Emit(GameEvents.Float, "+" + d.Value + " 金币");
+                Fx.PlayVfx(VfxKeys.StarSpark, p.x, p.y + 0.6f, p.z, 1.3f);
+            }
+            else if (d.Type == DropItem.TypeHealthSmall || d.Type == DropItem.TypeHealthBig)
+            {
+                float v = d.Type == DropItem.TypeHealthBig ? EnemyDefs.Pickups.HealthBig : EnemyDefs.Pickups.HealthSmall;
+                GS.Heal(v);
+                AudioKit.PlaySfx(SfxKeys.Health);
+                GameBus.Emit(GameEvents.Float, "+" + v + " HP");
+                Fx.PlayVfx(VfxKeys.SoftCircle, p.x, p.y + 0.6f, p.z, 1.8f);
+            }
+            else if (d.Type == DropItem.TypeMagnet)
+            {
+                GS.MagnetTimer = EnemyDefs.Pickups.MagnetTime;
+                AudioKit.PlaySfx(SfxKeys.Magnet);
+                GameBus.Emit(GameEvents.Float, "磁力吸附!");
+                Fx.PlayVfx(VfxKeys.RingWave, p.x, 0.3f, p.z, 2.2f);
             }
         }
     }
