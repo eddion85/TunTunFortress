@@ -74,14 +74,14 @@ namespace BattleFortress
         [SerializeField] private string topSlotId = "Slot_Top";      // 车顶挂点 id（同时也是模型内节点名）
         [SerializeField, Range(0.1f, 1f)] private float weaponWidthRatio = 0.5f; // 自动尺寸：武器宽度占当前形态宽度比例
 
-        [Header("车侧弩箭（Stage2 每侧1把，Stage3 每侧2把，沿前后排列、朝外射击）")]
+        [Header("车侧弩箭（奖励弹窗解锁：每侧1把，升星后每侧2把，沿前后排列、朝外射击）")]
         [SerializeField] private string sideLeftSlotName = "Slot_Side_Left";
         [SerializeField] private string sideRightSlotName = "Slot_Side_Right";
         [SerializeField, Range(0.1f, 1f)] private float crossbowWidthRatio = 0.7f; // 弩宽度占车体宽度比例（也是双弩前后间距），上限1保证不超出车体
         [SerializeField] private Vector3 crossbowEulerLeft = new Vector3(0f, 0f, -90f);  // 左弩朝外：弩身模型 +Y 转到世界 +X，弩臂竖直
         [SerializeField] private Vector3 crossbowEulerRight = new Vector3(0f, 0f, 90f);  // 右弩朝外：模型 +Y 转到世界 -X
         private const int MaxCrossbowPerSide = 2;
-        private const int CrossbowUnlockStage = 2; // 达到该进化阶段开始装备
+
 
         [Header("车头攻城锤（Slot_Front，4 阶，正前方直线突刺）")]
         [SerializeField] private string frontSlotId = "Slot_Front";
@@ -275,15 +275,15 @@ namespace BattleFortress
         /// <summary>当前每侧弩箭数量：达到解锁阶段后每升一阶每侧 +1，封顶 MaxCrossbowPerSide</summary>
         private int CrossbowsPerSide()
         {
-            int stage = GS.Stage;
+            int n = GS.CrossbowLevel;
 #if UNITY_EDITOR
-            if (debugShowCrossbow) stage = Mathf.Max(stage, CrossbowUnlockStage + MaxCrossbowPerSide - 1);
+            if (debugShowCrossbow) n = MaxCrossbowPerSide;
 #endif
-            if (stage < CrossbowUnlockStage) return 0;
-            return Mathf.Min(MaxCrossbowPerSide, stage - CrossbowUnlockStage + 1);
+
+            return Mathf.Clamp(n, 0, MaxCrossbowPerSide);
         }
 
-        /// <summary>按进化阶段同步两侧弩箭：达到数量就 Equip，不足就卸下多余的</summary>
+        /// <summary>按 GS.CrossbowLevel 同步两侧弩箭：达到数量就 Equip，不足就卸下多余的</summary>
         private void SyncCrossbows()
         {
             int perSide = CrossbowsPerSide();

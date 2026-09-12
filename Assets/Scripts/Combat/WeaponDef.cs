@@ -17,6 +17,15 @@ namespace BattleFortress
         Thrust = 2
     }
 
+    /// <summary>飞行弹体的外观种类（决定 AutoWeapon 用哪个弹体模板，弩箭用箭矢而非炮弹）</summary>
+    public enum ProjectileKind
+    {
+        /// <summary>圆形炮弹（默认，侧炮/正面炮/火箭炮）</summary>
+        Cannon = 0,
+        /// <summary>箭矢（车侧弩箭）</summary>
+        Arrow = 1
+    }
+
     /// <summary>
     /// 一件「自动攻击装备」的完整数值/表现定义（纯数据，不含逻辑）。
     /// AutoWeapon 只认这份定义选敌、开火、结算、播动画；想加新装备武器：
@@ -48,6 +57,7 @@ namespace BattleFortress
 
         // —— 表现 ——
         public float ShellScale;        // 弹体模型缩放
+        public ProjectileKind ProjKind = ProjectileKind.Cannon; // 弹体外观（弩箭=箭矢）
         public bool FlightTrail;        // 飞行时是否持续留火焰拖尾（让弹道更明显）
         public float TrailInterval;     // 拖尾留火间隔（秒）
         public float TrailFxScale;      // 拖尾火团尺寸
@@ -197,6 +207,7 @@ namespace BattleFortress
                 BlindFront = 0f,
                 BossFocus = false,
                 ShellScale = GameConfig.CrossbowShellScale,
+                ProjKind = ProjectileKind.Arrow,
                 FlightTrail = false,
                 TrailInterval = 0f,
                 TrailFxScale = 0f,

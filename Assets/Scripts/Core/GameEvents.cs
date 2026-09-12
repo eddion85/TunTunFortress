@@ -8,6 +8,7 @@ namespace BattleFortress
     public static class GameEvents
     {
         public const string LevelUp = "bf_levelup";
+        public const string Offer = "bf_offer";      // 击杀里程碑达成，系统自动弹出三选一奖励
         public const string Result = "bf_result";
         public const string Float = "bf_float";
         public const string Evolve = "bf_evolve";

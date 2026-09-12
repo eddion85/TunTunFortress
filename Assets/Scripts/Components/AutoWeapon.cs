@@ -16,6 +16,7 @@ namespace BattleFortress
     {
         [Header("炮弹模板（对象池）")]
         [SerializeField] private GameObject shellTpl;
+        [SerializeField] private GameObject shellTplArrow;   // 弩箭专用箭矢弹体（不填则回退 shellTpl）
 
         [Header("炮口")]
         [SerializeField] private Transform muzzleL;
@@ -298,8 +299,10 @@ namespace BattleFortress
             Fx.Shake(d.FireShake);
             KickRecoil(m);
 
-            if (shellTpl == null) return;
-            var shell = ObjectPool.Spawn(shellTpl, from, Quaternion.identity, transform.parent);
+            // 弩箭用箭矢模型，其余用炮弹；未配置箭矢模板时回退默认炮弹
+            var tpl = d.ProjKind == ProjectileKind.Arrow && shellTplArrow != null ? shellTplArrow : shellTpl;
+            if (tpl == null) return;
+            var shell = ObjectPool.Spawn(tpl, from, Quaternion.identity, transform.parent);
             shell.transform.localScale = new Vector3(d.ShellScale, d.ShellScale, d.ShellScale);
 
             var sh = shell.GetComponent<Shell>();

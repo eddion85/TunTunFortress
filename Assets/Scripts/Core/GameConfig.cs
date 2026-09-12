@@ -369,6 +369,16 @@ namespace BattleFortress
             public const float ReviveInvincible = 3f;   // 复活后无敌秒数
             public const bool ReviveClearMobs = true;   // 复活时是否清空场上普通兵（Boss 保留）
             public const float LoseCoinRatio = 0.3f;    // 最终放弃时，局内金币按此比例转入局外存档
+
+            // ---------- 击杀里程碑：系统自动弹出三选一（不允许局内手动购买装备） ----------
+            public const int OfferKillsFirst = 12;     // 第一次奖励所需击杀数
+            public const int OfferKillsGrow = 6;       // 之后每次阈值递增：第 n 次需要 First + n*Grow 杀
+            public const int OfferMaxPicks = 3;        // 每次里程碑最多可选择的次数（每次选择后重新过滤，必须仍满足条件）
+            public const float OfferHealBelowRatio = 0.92f; // 生命高于最大生命该比例时回复卡不出现（保证弹的都是真正可用）
+            public const int OfferCostWeapon = 60;    // 解锁一把武器的金币售价
+            public const int OfferCostUpgrade = 40;   // 武器升星一次的金币售价
+            public const int OfferCostBuff = 25;      // 数值词条（伤害/攻速/生命等）售价
+            public const int OfferCostHeal = 20;      // 紧急修复售价
         }
 
         /// <summary>按存活秒数推导当前难度快照（时间驱动，替代旧的按关卡推导）</summary>

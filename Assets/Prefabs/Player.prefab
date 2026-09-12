@@ -84,6 +84,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   shellTpl: {fileID: 6591609068786927578, guid: 76ae6853e3592e44f9780e24077873d2, type: 3}
+  shellTplArrow: {fileID: 399782028301975518, guid: dc773612f7db9364dba7c070e1412ae0, type: 3}
   muzzleL: {fileID: 7508133240097385655}
   muzzleR: {fileID: 3353582582405692389}
   muzzleF: {fileID: 6613211126669079989}

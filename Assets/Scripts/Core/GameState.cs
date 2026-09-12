@@ -47,12 +47,16 @@ namespace BattleFortress
         public static int RocketLevel = 0;     // 火箭炮等级 0..3（对应 L0~L3 模型）
         public static bool HasBatteringRam = false; // 车头攻城锤：动态挂到 Slot_Front
         public static int RamLevel = 0;        // 攻城锤等级 0..3（对应 L0~L3 模型）
+        public static bool HasCrossbow = false;    // 车侧弩箭：奖励弹窗解锁，不再随进化自动给
+        public static int CrossbowLevel = 0;       // 每侧弩箭数 0..2（1=左右各1把，2=各2把）
 
         /// <summary>三选一/商店累积的最大生命加成，进化重算时必须并入</summary>
         public static float HpBonusMul = 1f;
 
         /// <summary>待使用的强化点数：升级累积，由玩家自己决定何时开面板消费</summary>
-        public static int UpgradePoints = 0;
+        public static int OfferCount = 0;
+        /// <summary>下一次自动三选一所需的累计击杀数（次数成长，配置驱动）</summary>
+        public static int NextOfferKills = GameConfig.Survival.OfferKillsFirst;
 
         // ---------------- 无尽生存：复活 / Boss 调度 ----------------
         /// <summary>本局已使用的复活次数</summary>
@@ -104,8 +108,11 @@ namespace BattleFortress
             RocketLevel = 0;
             HasBatteringRam = false;
             RamLevel = 0;
+            HasCrossbow = false;
+            CrossbowLevel = 0;
             HpBonusMul = 1f;
-            UpgradePoints = 0;
+            OfferCount = 0;
+            NextOfferKills = GameConfig.Survival.OfferKillsFirst;
 
             Paused = false;
             Over = false;
@@ -221,7 +228,7 @@ namespace BattleFortress
                 }
 
                 // 升级只发点数，不打断战斗；玩家自己点强化按钮消费
-                UpgradePoints += 1;
+                // 升级不再发放强化点：奖励统一由击杀里程碑自动弹出
                 GameBus.Emit(GameEvents.LevelUp, Level);
                 AudioKit.PlaySfx(SfxKeys.Levelup);
             }
@@ -236,6 +243,14 @@ namespace BattleFortress
             if (Over) return;
             Kills += 1;
             Coins += (isBoss ? GameConfig.Survival.BossCoin : GameConfig.Survival.KillCoinBase) + coinBonus;
+
+            // 击杀里程碑：达到阈值自动弹出三选一（系统发放，玩家不可主动打开），阈值随次数递增
+            if (Kills >= NextOfferKills)
+            {
+                OfferCount += 1;
+                NextOfferKills += GameConfig.Survival.OfferKillsFirst + OfferCount * GameConfig.Survival.OfferKillsGrow;
+                GameBus.Emit(GameEvents.Offer, OfferCount);
+            }
         }
 
         /// <summary>玩家死亡：无尽模式只有失败结算，不存在通关</summary>

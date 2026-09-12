@@ -55,6 +55,8 @@ namespace BattleFortress
         private void Start()
         {
             if (panel != null) panel.SetActive(false);
+            // 装备改为击杀里程碑系统自动发放，局内不再允许手动购买：隐藏商店入口（脚本保留）
+            if (shopBtn != null) shopBtn.gameObject.SetActive(false);
             if (shopBtn != null) shopBtn.onClick.AddListener(Toggle);
             if (closeBtn != null) closeBtn.onClick.AddListener(Toggle);
 
